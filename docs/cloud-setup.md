@@ -34,8 +34,8 @@ hurt your real profiles and curves.
 Do this twice, once named `cyanotypes-dev` and once `cyanotypes-prod`:
 
 1. Go to <https://supabase.com/dashboard> → **New project**. Pick a region close to you.
-2. Set a strong **database password** and save it in your password manager. The migration
-   action needs it.
+2. Set a strong **database password** and save it in your password manager. You won't need it
+   for this setup, but it's how you'd connect a database tool directly later.
 3. When it's ready, open **Project Settings → General** and note the **Project ID** (the
    `abcdefghijklmnop` part of `https://abcdefghijklmnop.supabase.co`).
 4. Open **Project Settings → API Keys** and note the **Project URL** and the **publishable key**
@@ -89,7 +89,7 @@ npx supabase link --project-ref <dev-project-id>
 ```
 
 ```bash
-npx supabase db push
+npx supabase db push --linked
 ```
 
 Repeat `link` + `db push` with the prod project ID. (From now on the GitHub Action does this for
@@ -123,7 +123,6 @@ In the repo: **Settings → Environments**, create two environments, `developmen
 `production`. In each one add:
 
 - Variable `SUPABASE_PROJECT_ID` = that ring's project ID
-- Secret `SUPABASE_DB_PASSWORD` = that ring's database password
 
 Optionally add a **required reviewer** (yourself) on `production`, so prod migrations wait for a
 click.

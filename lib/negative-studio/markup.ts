@@ -15,8 +15,8 @@ export const MARKUP = /* html */ `
     <section class="step" id="s-open">
       <h2><span class="n">1</span>Open a photo<span class="chev">▾</span></h2>
       <div class="body">
-        <div class="drop" id="drop">Click to choose a photo<br><small>or drag one anywhere onto this window</small></div>
-        <input type="file" id="file" accept="image/*,.tif,.tiff,.heic" hidden>
+        <div class="drop" id="drop">Click to choose photos<br><small>or drag them anywhere onto this window — each opens in its own tab</small></div>
+        <input type="file" id="file" accept="image/*,.tif,.tiff,.heic" multiple hidden>
         <div class="fileinfo" id="fileinfo">JPEG, PNG, WebP. TIFF and HEIC open in Safari. (RAW files: export a JPEG/TIFF from Lightroom first.)</div>
       </div>
     </section>
@@ -116,6 +116,7 @@ export const MARKUP = /* html */ `
   </aside>
 
   <main>
+    <div class="phototabs" id="photoTabs" role="tablist"><button class="newtab" id="newTab" title="Open another photo in a new tab">+</button></div>
     <div class="viewbar">
       <div class="seg" id="views">
         <button data-v="orig">Original</button>
