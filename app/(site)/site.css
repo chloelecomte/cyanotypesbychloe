@@ -1,0 +1,129 @@
+/* Public pages (homepage, login). Scoped to .site so it doesn't leak into the tools. */
+.site {
+  --primary: #286fda;
+}
+
+.site a {
+  color: var(--primary);
+  text-decoration: none;
+}
+.site a:hover {
+  text-decoration: underline;
+}
+
+.site > header {
+  padding: 1rem;
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--primary);
+}
+
+.site .logo {
+  margin: 0;
+  padding: 0;
+  font-weight: 400;
+  color: var(--primary);
+}
+.site .logo a {
+  text-decoration: none;
+  color: inherit;
+}
+
+.site nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.site > main {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: start;
+}
+
+.site > footer {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.site > footer section {
+  display: flex;
+  flex-direction: column;
+  align-items: start;
+  padding: 1rem;
+}
+
+.site > footer section.link-list > *:not(:last-child) {
+  margin-bottom: 0.5rem;
+}
+
+.site section.cover {
+  height: 100vw;
+  max-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 0 1rem;
+}
+.site section.cover h2 {
+  font-weight: 400;
+}
+
+.site section.tools {
+  max-width: 40rem;
+  padding: 0 1rem 3rem;
+  text-align: center;
+}
+.site section.tools h2 {
+  font-weight: 400;
+}
+
+.site a.social-link {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-evenly;
+}
+
+.site a.social-link svg:not(:last-child) {
+  margin-right: 0.5rem;
+}
+
+.site a.button-link,
+.site button.button-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  border: 1px solid;
+  border-radius: 0.5rem;
+  padding: 0.5rem 1rem;
+  transition: box-shadow 300ms;
+  background: none;
+  color: var(--primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.site a.button-link:hover,
+.site button.button-link:hover {
+  box-shadow: 0 0 10px var(--primary);
+  text-decoration: none;
+}
+
+.site button.button-link:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.site .error {
+  color: #b3261e;
+}

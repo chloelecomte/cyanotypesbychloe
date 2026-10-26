@@ -1,0 +1,39 @@
+# Applies supabase/migrations to the matching Supabase project:
+#   pull request → "development" environment (dev project, used by Vercel previews)
+#   push to main → "production" environment (prod project, used by the live site)
+# Each GitHub environment holds its own SUPABASE_PROJECT_ID variable and
+# SUPABASE_DB_PASSWORD secret; SUPABASE_ACCESS_TOKEN is a repository secret.
+name: Database migrations
+
+on:
+  pull_request:
+    paths: ['supabase/migrations/**']
+  push:
+    branches: [main]
+    paths: ['supabase/migrations/**']
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Which project to migrate
+        type: choice
+        options: [development, production]
+        default: development
+
+jobs:
+  migrate:
+    # Forked PRs get no secrets, so skip them.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: ${{ (github.event_name == 'push' || inputs.target == 'production') && 'production' || 'development' }}
+    concurrency: db-migrations-${{ (github.event_name == 'push' || inputs.target == 'production') && 'production' || 'development' }}
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ vars.SUPABASE_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.122.0
+      - run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+      - run: supabase db push
