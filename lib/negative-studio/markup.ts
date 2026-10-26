@@ -144,17 +144,24 @@ export const MARKUP = /* html */ `
   <div class="dlg-head"><h2>Calibrate for your paper, chemistry and light</h2><div style="flex:1"></div><button id="calClose">Close</button></div>
   <div class="dlg-body">
     <p>The built-in "Generic cyanotype" profile is only an estimate. Cyanotype results vary a lot with paper, sensitizer, UV source, printer and film. A calibration measures <i>your</i> process once, so the curve and the preview match your real prints.</p>
-    <h3>1 · Print the step tablet negative</h3>
-    <p>This is a strip of 21 grey patches, already inverted and mirrored. Print it on transparency film with exactly the settings you'll use for negatives.</p>
-    <div class="btns"><button class="primary" id="dlTablet">⬇ Save step tablet (linear)</button><button id="dlTabletCorr" title="To check a finished calibration: should print as even steps">⬇ Save tablet with current curve</button></div>
-    <h3>2 · Find your exposure time</h3>
+    <h3>1 · Print the calibration sheet</h3>
+    <p>One full page of film with a band for each exposure time. Every band has two 21-step tablets: a <b>linear</b> one (for calibrating) and one with your <b>current curve</b> (to check it — a good curve prints as even steps). It's already inverted and mirrored. Print it on transparency film at 100% scale, with exactly the settings you'll use for negatives.</p>
+    <div class="calfields">
+      <div class="row"><label>Exposure times (minutes)</label><input type="text" id="sheetTimes" value="5, 10, 15, 20"></div>
+      <div class="row"><label>Film size</label><select id="sheetSize"><option value="letter">US Letter (8.5 × 11 in)</option><option value="a4">A4 (210 × 297 mm)</option></select></div>
+    </div>
+    <p id="sheetPlan" style="color:var(--muted)"></p>
+    <div class="btns"><button class="primary" id="dlSheet">⬇ Save calibration sheet</button><button id="printSheet">Print sheet…</button></div>
+    <div class="btns tight"><span style="align-self:center;color:var(--muted);font-size:12px">Single strips:</span><button id="dlTablet">Linear</button><button id="dlTabletCorr" title="To check a finished calibration: should print as even steps">Current curve</button></div>
+    <h3>2 · Expose it and find your exposure time</h3>
     <ol>
-      <li>Expose strips of the tablet for different times (e.g. 5, 10, 15, 20 min in sun or under UV), develop and dry them fully — cyanotype darkens as it dries.</li>
-      <li>Pick the <b>shortest</b> time at which the last few patches (19–21, clearest film) have all merged into the same deepest blue, while patches 1–2 stay paper white. This "standard printing time" idea is how Christina Z. Anderson approaches it in her cyanotype and digital-negative books.</li>
+      <li>Lay the film on the sensitized paper and expose the whole sheet. Each time on the list comes up, slide an opaque card down to the next marked line (the ticks in the margins), covering one more band. The top band gets the shortest time, the bottom band the longest.</li>
+      <li>Develop and dry fully — cyanotype darkens as it dries.</li>
+      <li>In the <b>linear</b> rows, pick the <b>shortest</b> time at which the last few patches (19–21, clearest film) have all merged into the same deepest blue, while patches 1–2 stay paper white. This "standard printing time" idea is how Christina Z. Anderson approaches it in her cyanotype and digital-negative books.</li>
       <li>From now on always use that time, paper and chemistry.</li>
     </ol>
     <h3>3 · Read your print</h3>
-    <p>Scan or photograph the dry print of the tablet (even light, no colour correction). Patch 1 is the lightest, patch 21 the darkest.</p>
+    <p>Scan or photograph the dry print (even light, no colour correction). Then click patch 1 and patch 21 of the <b>linear</b> row in the band you picked. Patch 1 is the lightest, patch 21 the darkest.</p>
     <div class="tabs"><button class="on" id="tabScan">From a scan</button><button id="tabType">Type values</button></div>
     <div id="paneScan">
       <div class="btns"><button id="loadScan">Choose scan…</button><input type="file" id="scanFile" accept="image/*,.tif,.tiff" hidden><span id="scanStatus" style="align-self:center;color:var(--muted);font-size:12px"></span></div>
@@ -177,7 +184,7 @@ export const MARKUP = /* html */ `
       <div class="row"><label>Printer &amp; film</label><input type="text" id="calPrinter" placeholder="e.g. Epson P700 · Pictorico"></div>
     </div>
     <div class="calfields">
-      <div class="row"><label>Exposure for this tablet (minutes)</label><input type="number" id="calExposure" min="0" step="0.5"></div>
+      <div class="row"><label>Exposure of the band you read (minutes)</label><input type="number" id="calExposure" min="0" step="0.5"></div>
       <div class="row"><label>Conditions</label><input type="text" id="calConditions" placeholder="e.g. clear sky, noon, July"></div>
     </div>
     <div class="btns"><button class="primary" id="calSave" disabled>Save &amp; use</button></div>
