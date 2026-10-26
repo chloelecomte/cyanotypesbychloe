@@ -471,16 +471,17 @@ export function mountStudio(root: HTMLElement, opts: { user: StudioUser; data: S
     if (!src) return alert('Open a photo first.');
     const win = window.open('', '_blank');
     if (!win) return alert('Please allow pop-ups for this site to print.');
-    withBusy(e.currentTarget as HTMLButtonElement, async () => {
-      const c = await buildNegative(), dpi = +state.print.dpi;
-      const url = URL.createObjectURL(await pngWithDpi(c, dpi));
-      const wi = c.width / dpi, hi = c.height / dpi;
-      win.document.write(`<!doctype html><title>Negative</title><style>@page{margin:0.25in}html,body{margin:0;background:#fff}img{display:block;width:${wi}in;height:${hi}in}</style>
-        <p style="font:13px sans-serif;margin:10px" class="np">Print at <b>100% scale</b> (not "fit to page"). ${wi.toFixed(2)} × ${hi.toFixed(2)} in.</p>
-        <style>@media print{.np{display:none}}</style><img src="${url}" onload="setTimeout(()=>print(),300)">`);
-      win.document.close();
-    });
+    withBusy(e.currentTarget as HTMLButtonElement, async () => printInWindow(win, await buildNegative(), +state.print.dpi, 'Negative', '0.25in'));
   };
+  /** Shows the canvas at its true size in a pop-up and opens the print dialog. */
+  async function printInWindow(win: Window, c: HTMLCanvasElement, dpi: number, title: string, margin: string) {
+    const url = URL.createObjectURL(await pngWithDpi(c, dpi));
+    const wi = c.width / dpi, hi = c.height / dpi;
+    win.document.write(`<!doctype html><title>${title}</title><style>@page{margin:${margin}}html,body{margin:0;background:#fff}img{display:block;width:${wi}in;height:${hi}in}</style>
+      <p style="font:13px sans-serif;margin:10px" class="np">Print at <b>100% scale</b> (not "fit to page"). ${wi.toFixed(2)} × ${hi.toFixed(2)} in.</p>
+      <style>@media print{.np{display:none}}</style><img src="${url}" onload="setTimeout(()=>print(),300)">`);
+    win.document.close();
+  }
   function tabletCanvas(corrected: boolean) {
     const dpi = 300, pw = Math.round(0.35 * dpi), ph = Math.round(0.9 * dpi), m = Math.round(0.3 * dpi), lab = Math.round(0.25 * dpi);
     const c = document.createElement('canvas'); c.width = pw * 21 + 2 * m; c.height = ph + 2 * m + lab;
@@ -494,6 +495,80 @@ export function mountStudio(root: HTMLElement, opts: { user: StudioUser; data: S
   }
   $('#dlTablet').onclick = async () => download(await pngWithDpi(tabletCanvas(false), 300), 'step-tablet-21_linear_300dpi_mirrored.png');
   $('#dlTabletCorr').onclick = async () => download(await pngWithDpi(tabletCanvas(true), 300), 'step-tablet-21_curve_300dpi_mirrored.png');
+
+  // ---------- Calibration sheet: a band per exposure time, each with a linear and a current-curve tablet ----------
+  const SHEETS = { letter: [8.5, 11], a4: [8.27, 11.69] } as const;
+  const MAX_BANDS = 6;
+  const fmtMin = (v: number) => `${+v.toFixed(2)} min`;
+  const bandName = (i: number) => String.fromCharCode(65 + i);
+  function sheetTimes() {
+    const vals = $<HTMLInputElement>('#sheetTimes').value.split(/[\s,;]+/).filter(Boolean).map(Number);
+    if (!vals.length || vals.some(v => !isFinite(v) || v <= 0)) return null;
+    return [...new Set(vals)].sort((a, b) => a - b).slice(0, MAX_BANDS);
+  }
+  function sheetSchedule(times: number[]) {
+    return times.map((t, i) => i < times.length - 1 ? `${fmtMin(t)}: cover ${bandName(i)}` : `${fmtMin(t)}: stop`).join(' · ');
+  }
+  function refreshSheetPlan() {
+    const times = sheetTimes();
+    $('#sheetPlan').innerHTML = !times
+      ? '<span style="color:var(--warn)">Enter one or more exposure times in minutes, e.g. 5, 10, 15, 20.</span>'
+      : `${times.length} band${times.length > 1 ? 's' : ''} (${times.map((t, i) => `${bandName(i)} = ${fmtMin(t)}`).join(', ')}). ` +
+        `Start the clock with the sheet uncovered, then ${esc(sheetSchedule(times))}.` +
+        (times.length === MAX_BANDS ? ` At most ${MAX_BANDS} bands fit on a page.` : '');
+  }
+  function sheetCanvas(times: number[], size: keyof typeof SHEETS) {
+    const dpi = 300, px = (inches: number) => Math.round(inches * dpi);
+    const [wIn, hIn] = SHEETS[size], c = document.createElement('canvas'); c.width = px(wIn); c.height = px(hIn);
+    const ctx = c.getContext('2d')!; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, c.width, c.height);
+    const m = px(0.4), pw = Math.min(px(0.35), Math.floor((c.width - 2 * m) / 21)), tw = pw * 21, x0 = Math.round((c.width - tw) / 2);
+    const font = (inches: number, bold = false) => { ctx.font = `${bold ? 'bold ' : ''}${px(inches)}px Helvetica,Arial,sans-serif`; };
+    const head = px(0.55), foot = px(0.3), n = times.length, bandH = (c.height - 2 * m - head - foot) / n;
+    // Each band: [gap for the cover edge][band label][numbers][caption + linear row][caption + curve row]
+    const gap = px(0.25), lab = px(0.24), nums = px(0.17), cap = px(0.15), rowGap = px(0.05);
+    const rowH = Math.min(px(0.9), Math.floor((bandH - gap - lab - nums - 2 * cap - rowGap) / 2));
+    const linearCurve = isLinear(state.curve || LINEAR), profileName = currentProfile()?.name ?? 'Generic cyanotype';
+    ctx.fillStyle = '#fff'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    font(0.17, true); ctx.fillText('Cyanotype calibration sheet · linear vs. current curve', x0, m + px(0.12));
+    font(0.11); ctx.fillText(`${profileName} · ${new Date().toLocaleDateString()} · print at 100%, ink side down`, x0, m + px(0.34));
+    for (let b = 0; b < n; b++) {
+      const top = Math.round(m + head + b * bandH);
+      // Cover line above this band: the card edge goes here once band b-1's time is up (ticks in both margins, centred in the gap)
+      if (b > 0) {
+        const line = top + Math.round(gap / 2), tick = Math.max(2, px(0.012));
+        ctx.fillRect(0, line - tick / 2, m - px(0.08), tick); ctx.fillRect(c.width - m + px(0.08), line - tick / 2, m - px(0.08), tick);
+        font(0.1); ctx.textAlign = 'right'; ctx.fillText(`cover ${bandName(b - 1)} to here ▲`, x0 + tw, line);
+      }
+      let y = top + gap;
+      font(0.16, true); ctx.textAlign = 'left'; ctx.fillText(`${bandName(b)}  ·  ${fmtMin(times[b])}`, x0, y + lab / 2); y += lab;
+      font(0.1); ctx.textAlign = 'center';
+      for (let i = 0; i < 21; i++) ctx.fillText(String(i + 1), x0 + (i + 0.5) * pw, y + nums / 2);
+      y += nums;
+      for (const corrected of [false, true]) {
+        font(0.095); ctx.textAlign = 'left'; ctx.fillStyle = '#fff';
+        ctx.fillText(corrected ? `Current curve${linearCurve ? ' (linear — same as above)' : ''}` : 'Linear · use this row to calibrate', x0, y + cap / 2);
+        y += cap; drawTablet(ctx, x0, y, tw, rowH, corrected, 0); y += rowH + rowGap;
+      }
+    }
+    ctx.fillStyle = '#fff'; font(0.1); ctx.textAlign = 'left';
+    ctx.fillText(`Expose all, then slide a card down: ${sheetSchedule(times)}`, x0, c.height - m - foot / 2);
+    return mirrored(c);
+  }
+  const sheetName = (times: number[]) => `calibration-sheet_${times.join('-')}min_300dpi_mirrored.png`;
+  $('#sheetTimes').addEventListener('input', refreshSheetPlan, { signal });
+  refreshSheetPlan();
+  $<HTMLButtonElement>('#dlSheet').onclick = e => {
+    const times = sheetTimes(); if (!times) return alert('Enter one or more exposure times in minutes, e.g. 5, 10, 15, 20.');
+    withBusy(e.currentTarget as HTMLButtonElement, async () =>
+      download(await pngWithDpi(sheetCanvas(times, $<HTMLSelectElement>('#sheetSize').value as keyof typeof SHEETS), 300), sheetName(times)));
+  };
+  $<HTMLButtonElement>('#printSheet').onclick = e => {
+    const times = sheetTimes(); if (!times) return alert('Enter one or more exposure times in minutes, e.g. 5, 10, 15, 20.');
+    const win = window.open('', '_blank');
+    if (!win) return alert('Please allow pop-ups for this site to print.');
+    withBusy(e.currentTarget as HTMLButtonElement, async () =>
+      printInWindow(win, sheetCanvas(times, $<HTMLSelectElement>('#sheetSize').value as keyof typeof SHEETS), 300, 'Calibration sheet', '0'));
+  };
 
   // ---------- Curve files (.acv / .cube) ----------
   $('#exportAcv').onclick = () => download(new Blob([encodeAcv(state.curve || LINEAR)]), 'cyanotype-negative-curve.acv');

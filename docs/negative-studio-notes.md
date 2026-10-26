@@ -22,7 +22,9 @@ dependencies and no backend.
    21-step "ideal vs. predicted" strip with a count of distinct tones.
 6. **Print**: mirrored PNG at a chosen width/DPI (DPI embedded in a `pHYs` chunk),
    with a border and an optional 21-step tablet. A Print button is included too.
-7. **Calibrate**: download a linear 21-step tablet, print it, scan the result, click
+7. **Calibrate**: print a full-page calibration sheet (Letter or A4, up to 6 bands, one per
+   exposure time, each with a linear and a current-curve tablet; a card slides down the
+   marked lines to stop each band), or a single linear strip. Scan the result, click
    patch 1 and patch 21, and the app samples all 21 patches. Readings can also be typed.
    The result is saved as a named process profile.
 
