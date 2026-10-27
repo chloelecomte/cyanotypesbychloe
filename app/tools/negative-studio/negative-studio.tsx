@@ -37,6 +37,7 @@ export function NegativeStudio({ user, data }: { user: StudioUser; data: StudioD
 function Studio() {
   const [calOpen, setCalOpen] = useState(false), [helpOpen, setHelpOpen] = useState(false);
   useDropToOpen(calOpen);
+  useUndoShortcuts();
   return (
     <div className="studio grid h-screen grid-cols-[360px_1fr] grid-rows-[48px_1fr] bg-background text-sm text-foreground">
       <StudioHeader onCalibrate={() => setCalOpen(true)} onHelp={() => setHelpOpen(true)} />
@@ -48,6 +49,25 @@ function Studio() {
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>
   );
+}
+
+/** ⌘Z / Ctrl+Z undoes, ⇧⌘Z / Ctrl+Shift+Z / Ctrl+Y redoes, except while typing in a field (which has its own undo). */
+function useUndoShortcuts() {
+  const { undo, redo } = useStudio();
+  const latest = useRef({ undo, redo });
+  useEffect(() => { latest.current = { undo, redo }; });
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const t = e.target;
+      if (t instanceof Element && t.closest('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="alertdialog"]')) return;
+      const key = e.key.toLowerCase();
+      if (key === 'z') { e.preventDefault(); (e.shiftKey ? latest.current.redo : latest.current.undo)(); }
+      else if (key === 'y' && e.ctrlKey) { e.preventDefault(); latest.current.redo(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 }
 
 /** Photos dropped anywhere on the window open in new tabs (but not while calibrating, where a scan is expected). */

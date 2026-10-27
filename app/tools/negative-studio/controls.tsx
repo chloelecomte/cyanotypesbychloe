@@ -2,11 +2,12 @@
 
 // Small building blocks shared by the studio's panels.
 import { useId, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { CircleHelp, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Slider } from '@/components/ui/slider';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -55,11 +56,16 @@ export function NumberField({ id, value, onChange, ...props }: Omit<React.Compon
   );
 }
 
-/** A labelled form field. */
-export function Field({ label, htmlFor, className, children }: { label: string; htmlFor: string; className?: string; children: React.ReactNode }) {
+/** A labelled form field, optionally with a help button after the label. */
+export function Field({ label, htmlFor, help, className, children }: {
+  label: string; htmlFor: string; help?: React.ReactNode; className?: string; children: React.ReactNode;
+}) {
   return (
     <div className={cn('grid gap-1.5', className)}>
-      <Label htmlFor={htmlFor} className="text-xs font-normal text-muted-foreground">{label}</Label>
+      <div className="flex items-center gap-1">
+        <Label htmlFor={htmlFor} className="text-xs font-normal text-muted-foreground">{label}</Label>
+        {help && <HelpTip label={`About ${label.toLowerCase()}`}>{help}</HelpTip>}
+      </div>
       {children}
     </div>
   );
@@ -74,6 +80,22 @@ export function IconButton({ label, children, ...props }: React.ComponentProps<t
       </TooltipTrigger>
       <TooltipContent>{label}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/** A small ? button that opens an explanation. */
+export function HelpTip({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button type="button" aria-label={label} className="rounded-full text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none">
+          <CircleHelp className="size-3.5" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent side="right" align="start" className="w-80 text-xs leading-relaxed text-muted-foreground [&_b]:font-medium [&_b]:text-foreground [&_h4]:mb-1 [&_h4]:text-[13px] [&_h4]:font-semibold [&_h4]:text-foreground [&_p+h4]:mt-3 [&_p+p]:mt-2">
+        {children}
+      </PopoverContent>
+    </Popover>
   );
 }
 

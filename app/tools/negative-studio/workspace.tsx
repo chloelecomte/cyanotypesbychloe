@@ -2,15 +2,15 @@
 
 // The right-hand side: photo tabs, view switcher, the preview and the tone strip.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ImageIcon, Plus, X } from 'lucide-react';
+import { Check, Download, ImageIcon, Plus, Redo2, Undo2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { aspectValue, drawStrip, predictedDistinct, renderCrop, renderView } from '@/lib/negative-studio/canvas';
 import { clamp } from '@/lib/negative-studio/math';
-import { printDims } from '@/lib/negative-studio/output';
+import { cyanotypePreview, download, jpeg, printDims } from '@/lib/negative-studio/output';
 import type { View } from '@/lib/negative-studio/types';
 import { cn } from '@/lib/utils';
-import { IconButton } from './controls';
+import { BusyButton, IconButton, useBusy } from './controls';
 import { usePhotoPicker } from './steps';
 import { useStudio } from './use-studio';
 
@@ -26,8 +26,9 @@ export function Workspace() {
 }
 
 function PhotoTabs() {
-  const { tabs, active, activate, closeTab } = useStudio();
+  const { tabs, active, activate, closeTab, renameTab } = useStudio();
   const [picker, pick] = usePhotoPicker();
+  const [editing, setEditing] = useState<number | null>(null);
   const activeRef = useRef<HTMLDivElement>(null);
   useEffect(() => { activeRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [active?.id]);
   return (
@@ -36,8 +37,9 @@ function PhotoTabs() {
         const on = t === active;
         return (
           <div
-            key={t.id} ref={on ? activeRef : undefined} role="tab" aria-selected={on} title={t.info} tabIndex={0}
-            onClick={() => activate(t.id)} onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') activate(t.id); }}
+            key={t.id} ref={on ? activeRef : undefined} role="tab" aria-selected={on} title={`${t.info} · double-click to rename`} tabIndex={0}
+            onClick={() => activate(t.id)} onDoubleClick={() => setEditing(t.id)}
+            onKeyDown={e => { if (e.target !== e.currentTarget) return; if (e.key === 'Enter' || e.key === ' ') activate(t.id); if (e.key === 'F2') setEditing(t.id); }}
             onAuxClick={e => { if (e.button === 1) closeTab(t.id); }}
             className={cn(
               'group flex max-w-52 shrink-0 cursor-pointer select-none items-center gap-1 rounded-t-md border border-b-0 border-transparent py-1.5 pr-1 pl-3 text-[13px] text-muted-foreground hover:bg-accent/60 hover:text-foreground',
@@ -45,7 +47,9 @@ function PhotoTabs() {
             )}
           >
             <ImageIcon className="size-3.5 shrink-0 opacity-60" />
-            <span className="truncate">{t.name}</span>
+            {editing === t.id
+              ? <TabNameInput name={t.name} onDone={name => { if (name) renameTab(t.id, name); setEditing(null); }} />
+              : <span className="truncate">{t.name}</span>}
             <button
               type="button" aria-label={`Close ${t.name}`} title="Close this photo"
               onClick={e => { e.stopPropagation(); closeTab(t.id); }}
@@ -60,17 +64,45 @@ function PhotoTabs() {
   );
 }
 
+/** Renames a tab in place: Enter or clicking away keeps the name, Escape cancels. */
+function TabNameInput({ name, onDone }: { name: string; onDone: (name: string | null) => void }) {
+  const [value, setValue] = useState(name);
+  return (
+    <input
+      autoFocus value={value} aria-label="Photo name" onFocus={e => e.target.select()}
+      onChange={e => setValue(e.target.value)} onClick={e => e.stopPropagation()}
+      onBlur={() => onDone(value.trim() || null)}
+      onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') onDone(null); }}
+      className="w-36 rounded-sm bg-input/40 px-1 text-foreground outline-none ring-1 ring-ring"
+    />
+  );
+}
+
 const VIEWS: [View, string][] = [['orig', 'Original'], ['bw', 'B&W'], ['neg', 'Negative'], ['cyan', 'Cyanotype'], ['compare', 'Compare']];
 
 function ViewBar() {
-  const { settings, setView, active } = useStudio();
+  const { settings, setView, active, luts, canUndo, canRedo, undo, redo } = useStudio();
   const { wIn, hIn } = printDims(settings.print, active);
+  const [saving, run] = useBusy();
+  const mod = typeof navigator !== 'undefined' && /Mac|iP/.test(navigator.platform) ? '⌘' : 'Ctrl+';
+  function savePreview() {
+    if (!active) return;
+    run(async () => download(await jpeg(cyanotypePreview(active, settings.bw, luts.cyan)), `${active.name}_cyanotype-preview.jpg`));
+  }
   return (
     <div className="flex items-center gap-3 border-b px-3 py-2">
+      <div className="flex">
+        <IconButton label={`Undo (${mod}Z)`} size="icon-sm" disabled={!canUndo} onClick={undo}><Undo2 /></IconButton>
+        <IconButton label={`Redo (${mod === '⌘' ? '⇧⌘Z' : 'Ctrl+Y'})`} size="icon-sm" disabled={!canRedo} onClick={redo}><Redo2 /></IconButton>
+      </div>
       <ToggleGroup type="single" variant="outline" size="sm" value={settings.view} onValueChange={v => v && setView(v as View)} aria-label="Preview">
         {VIEWS.map(([v, l]) => <ToggleGroupItem key={v} value={v} className="px-3 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">{l}</ToggleGroupItem>)}
       </ToggleGroup>
-      {active && <span className="ml-auto truncate text-xs text-muted-foreground">{active.name} · prints {wIn.toFixed(1)} × {hIn.toFixed(1)} in</span>}
+      {active && <>
+        <span className="ml-auto truncate text-xs text-muted-foreground">{active.name} · prints {wIn.toFixed(1)} × {hIn.toFixed(1)} in</span>
+        <BusyButton busy={saving} icon={<Download />} variant="outline" size="sm" onClick={savePreview}
+          title="Save the simulated cyanotype print as a JPEG, for reference">Save preview</BusyButton>
+      </>}
     </div>
   );
 }
