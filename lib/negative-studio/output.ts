@@ -75,6 +75,26 @@ export function negativeName(name: string, p: PrintSettings, photo: Photo) {
   return `${name}_negative_${wIn.toFixed(1)}x${hIn.toFixed(1)}in_${p.dpi}dpi${p.mirror ? '_mirrored' : ''}.png`;
 }
 
+/** The simulated cyanotype print, for reference: up to `maxEdge` px on the long side, not mirrored. */
+export function cyanotypePreview(photo: Photo, bw: Settings['bw'], cyan: Uint8ClampedArray, maxEdge = 3000) {
+  const cp = cropPx(photo.src, photo.rot, photo.crop), s = Math.min(1, maxEdge / Math.max(cp.w, cp.h));
+  const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(cp.w * s)); c.height = Math.max(1, Math.round(cp.h * s));
+  const ctx = c.getContext('2d', { willReadFrequently: true })!;
+  drawOriented(ctx, photo.src, photo, s, cp.x, cp.y);
+  const id = ctx.getImageData(0, 0, c.width, c.height), d = id.data, [wr, wg, wb] = grayWeights(bw), k = (N - 1) / 255;
+  for (let j = 0; j < d.length; j += 4) {
+    const i = ((clamp(wr * d[j] + wg * d[j + 1] + wb * d[j + 2], 0, 255) * k + 0.5) | 0) * 3;
+    d[j] = cyan[i]; d[j + 1] = cyan[i + 1]; d[j + 2] = cyan[i + 2]; d[j + 3] = 255;
+  }
+  ctx.putImageData(id, 0, 0);
+  return c;
+}
+export async function jpeg(canvas: HTMLCanvasElement, quality = 0.92) {
+  const blob = await new Promise<Blob | null>(r => canvas.toBlob(r, 'image/jpeg', quality));
+  if (!blob) throw new Error('could not encode JPEG');
+  return blob;
+}
+
 /** A single 21-step tablet strip at 300 dpi, mirrored. */
 export function tabletCanvas(curve: Fn, corrected: boolean) {
   const dpi = 300, pw = Math.round(0.35 * dpi), ph = Math.round(0.9 * dpi), m = Math.round(0.3 * dpi), lab = Math.round(0.25 * dpi);

@@ -26,7 +26,14 @@ const PHOTO_KEYS = ['aspect', 'bw', 'tone', 'curve', 'curveAuto', 'print'] as co
 type PhotoSettings = Pick<Settings, typeof PHOTO_KEYS[number]>;
 const photoSettings = (s: Settings) => structuredClone(Object.fromEntries(PHOTO_KEYS.map(k => [k, s[k]]))) as PhotoSettings;
 
-export type Tab = Photo & { id: number; name: string; info: string; settings: PhotoSettings };
+/** A point to go back to: the editor settings and how the photo is turned and cropped. */
+type Snapshot = { settings: Settings; photo: Pick<Photo, 'rot' | 'flip' | 'crop'> | null };
+/** Undo history. Edits with the same key in quick succession (one slider drag) make one step. */
+type History = { past: Snapshot[]; future: Snapshot[]; key: string; at: number };
+const NO_HISTORY: History = { past: [], future: [], key: '', at: 0 };
+const HISTORY_LIMIT = 100, COALESCE_MS = 1000;
+
+export type Tab = Photo & { id: number; name: string; info: string; settings: PhotoSettings; history: History };
 
 type State = {
   settings: Settings;
@@ -36,6 +43,8 @@ type State = {
   activeId: number | null;
   /** The crop being drawn, while crop mode is on. */
   cropDraft: Crop | null | undefined;
+  /** The active tab's undo history; the other tabs keep their own. */
+  history: History;
   nextId: number;
 };
 
@@ -48,7 +57,7 @@ const refit = (s: Settings, profiles: Profile[]): Settings =>
 /** Leaves the active tab: its settings and crop go back into the tab list. */
 function stash(st: State): Tab[] {
   return st.tabs.map(t => t.id !== st.activeId ? t
-    : { ...t, settings: photoSettings(st.settings), crop: st.cropDraft !== undefined ? st.cropDraft : t.crop });
+    : { ...t, settings: photoSettings(st.settings), crop: st.cropDraft !== undefined ? st.cropDraft : t.crop, history: st.history });
 }
 function activateState(st: State, id: number | null): Partial<State> {
   const tabs = stash(st), next = tabs.find(t => t.id === id) ?? null;
@@ -58,21 +67,68 @@ function activateState(st: State, id: number | null): Partial<State> {
     // The process profile is shared, so it may have changed since this tab was last shown.
     if (settings.curveAuto || !settings.curve) settings = refit(settings, st.profiles);
   }
-  return { tabs, activeId: next?.id ?? null, settings, cropDraft: undefined };
+  return { tabs, activeId: next?.id ?? null, settings, cropDraft: undefined, history: next?.history ?? NO_HISTORY };
+}
+
+/** Every new photo starts from the default edits; the print setup (size, resolution, mirror…) carries over. */
+function newPhotoSettings(st: State): Settings {
+  const d = structuredClone(DEFAULT_SETTINGS);
+  return refit({ ...st.settings, aspect: d.aspect, bw: d.bw, tone: d.tone }, st.profiles);
+}
+
+// Names some apps give files they hand over (Continuity Camera, pasted images) instead of a real file name.
+const PLACEHOLDER_NAME = /^(tempImage\w*|image|img|photo|blob|untitled|screenshot)$/i;
+function photoName(file: File, id: number) {
+  const base = (file.name || '').replace(/\.[^.]+$/, '').trim();
+  return base && !PLACEHOLDER_NAME.test(base) ? base : `Photo ${id}`;
+}
+
+function snapshot(st: State): Snapshot {
+  const t = st.tabs.find(t => t.id === st.activeId);
+  return { settings: st.settings, photo: t ? { rot: t.rot, flip: t.flip, crop: t.crop } : null };
+}
+/** Goes back to a snapshot, keeping what isn't an edit: which view is shown and where the split is. */
+function restore(st: State, snap: Snapshot): Partial<State> {
+  let settings = { ...snap.settings, view: st.settings.view, split: st.settings.split };
+  if (!calibrated(st.profiles, settings.profile)) settings = refit({ ...settings, profile: 'model' }, st.profiles);
+  const tabs = snap.photo ? st.tabs.map(t => t.id === st.activeId ? { ...t, ...snap.photo } : t) : st.tabs;
+  return { settings, tabs, cropDraft: undefined };
+}
+
+/** Which field changed, so drags of different sliders become separate undo steps. */
+function changedKey<T extends object>(a: T, b: T) {
+  return (Object.keys(b) as (keyof T)[]).find(k => a[k] !== b[k])?.toString() ?? '';
 }
 
 function initialState(data: StudioData): State {
   let settings = mergeSettings(data.settings);
   if (!calibrated(data.profiles, settings.profile)) settings.profile = 'model';
   if (!settings.curve) settings = refit(settings, data.profiles);
-  return { settings, profiles: data.profiles, curves: data.curves, tabs: [], activeId: null, cropDraft: undefined, nextId: 1 };
+  return { settings, profiles: data.profiles, curves: data.curves, tabs: [], activeId: null, cropDraft: undefined, history: NO_HISTORY, nextId: 1 };
 }
 
 function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioData; repo: Repo }) {
   const confirm = useConfirm();
   const [st, setSt] = useState(() => initialState(data));
   const set = (fn: (st: State) => Partial<State>) => setSt(s => ({ ...s, ...fn(s) }));
-  const setSettings = (fn: (s: Settings, st: State) => Partial<Settings>) => set(st => ({ settings: { ...st.settings, ...fn(st.settings, st) } }));
+  /** An undoable change. Changes with the same key less than a second apart are undone together. */
+  const edit = (key: string, fn: (st: State) => Partial<State>) => setSt(s => {
+    const patch = fn(s);
+    if (!Object.keys(patch).length) return s;
+    const now = Date.now(), h = s.history, coalesce = key === h.key && now - h.at < COALESCE_MS;
+    const past = coalesce ? h.past : [...h.past, snapshot(s)].slice(-HISTORY_LIMIT);
+    return { ...s, ...patch, history: { past, future: [], key, at: now } };
+  });
+  const setSettings = (key: string, fn: (s: Settings, st: State) => Partial<Settings>) =>
+    edit(key, st => ({ settings: { ...st.settings, ...fn(st.settings, st) } }));
+  const undo = () => set(st => {
+    const h = st.history, prev = h.past.at(-1);
+    return prev ? { ...restore(st, prev), history: { past: h.past.slice(0, -1), future: [snapshot(st), ...h.future], key: '', at: 0 } } : {};
+  });
+  const redo = () => set(st => {
+    const h = st.history, next = h.future[0];
+    return next ? { ...restore(st, next), history: { past: [...h.past, snapshot(st)], future: h.future.slice(1), key: '', at: 0 } } : {};
+  });
   const { settings, profiles, tabs, activeId, cropDraft } = st;
 
   // ---------- Cloud saving ----------
@@ -120,14 +176,15 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
       toast.error(`${file.name || 'This file'} couldn't be opened`, { description: 'Try exporting it as a JPEG, PNG or TIFF (TIFF works in Safari).' });
       return;
     }
-    // A new photo starts from the current tab's edits, and opens after it.
+    // A new photo starts from the default edits, and opens after the current tab.
     set(st => {
       const tabs = stash(st), at = st.activeId != null ? tabs.findIndex(t => t.id === st.activeId) + 1 : tabs.length;
+      const settings = newPhotoSettings(st);
       const tab: Tab = {
-        id: st.nextId, src: img, name: (file.name || 'photo').replace(/\.[^.]+$/, ''), info: `${file.name || 'photo'} · ${img.width} × ${img.height} px`,
-        rot: 0, flip: false, crop: fitAspect(null, st.settings.aspect, img, 0), settings: photoSettings(st.settings),
+        id: st.nextId, src: img, name: photoName(file, st.nextId), info: `${file.name || 'Pasted image'} · ${img.width} × ${img.height} px`,
+        rot: 0, flip: false, crop: null, settings: photoSettings(settings), history: NO_HISTORY,
       };
-      return { tabs: [...tabs.slice(0, at), tab, ...tabs.slice(at)], activeId: tab.id, nextId: st.nextId + 1, cropDraft: undefined };
+      return { tabs: [...tabs.slice(0, at), tab, ...tabs.slice(at)], activeId: tab.id, nextId: st.nextId + 1, settings, cropDraft: undefined, history: NO_HISTORY };
     });
   }
   async function openFiles(files: File[]) {
@@ -143,6 +200,8 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
     });
     if ('close' in tab.src) tab.src.close();
   }
+  const renameTab = (id: number, name: string) =>
+    set(st => ({ tabs: st.tabs.map(t => t.id === id ? { ...t, name } : t) }));
   // Bitmaps are released when the studio goes away.
   const tabsRef = useRef(tabs);
   useEffect(() => { tabsRef.current = tabs; }, [tabs]);
@@ -150,7 +209,7 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
 
   // ---------- Crop & orientation ----------
   function rotate(quarterTurns: 1 | -1) {
-    set(st => {
+    edit('rotate', st => {
       const t = st.tabs.find(t => t.id === st.activeId); if (!t) return {};
       const rot = (t.rot + quarterTurns + 4) % 4, crop = fitAspect(null, st.settings.aspect, t.src, rot);
       return { tabs: st.tabs.map(x => x === t ? { ...t, rot, crop } : x), cropDraft: st.cropDraft === undefined ? undefined : crop };
@@ -158,13 +217,13 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
   }
   function flipPhoto() {
     const mirror = (c: Crop | null) => c && { ...c, x: 1 - c.x - c.w };
-    set(st => ({
+    edit('flip', st => ({
       tabs: st.tabs.map(t => t.id === st.activeId ? { ...t, flip: !t.flip, crop: mirror(t.crop) } : t),
       cropDraft: st.cropDraft === undefined ? undefined : mirror(st.cropDraft),
     }));
   }
   function setAspect(aspect: string) {
-    set(st => {
+    edit('aspect', st => {
       const t = st.tabs.find(t => t.id === st.activeId), settings = { ...st.settings, aspect };
       if (!t) return { settings };
       if (st.cropDraft !== undefined) return { settings, cropDraft: fitAspect(st.cropDraft, aspect, t.src, t.rot) };
@@ -173,12 +232,12 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
   }
   const startCrop = () => set(st => ({ cropDraft: st.tabs.find(t => t.id === st.activeId)?.crop ?? null }));
   function finishCrop() {
-    set(st => st.cropDraft === undefined ? {} : {
+    edit('crop', st => st.cropDraft === undefined ? {} : {
       tabs: st.tabs.map(t => t.id === st.activeId ? { ...t, crop: st.cropDraft ?? null } : t), cropDraft: undefined,
     });
   }
   function resetCrop() {
-    set(st => {
+    edit('reset-crop', st => {
       const t = st.tabs.find(t => t.id === st.activeId); if (!t) return {};
       const c = fitAspect(null, st.settings.aspect, t.src, t.rot);
       return st.cropDraft !== undefined ? { cropDraft: c } : { tabs: st.tabs.map(x => x === t ? { ...t, crop: c } : x) };
@@ -187,15 +246,15 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
   const setCropDraft = (c: Crop | null) => set(() => ({ cropDraft: c }));
 
   // ---------- Curve ----------
-  const fitCurve = () => setSettings((s, st) => refit(s, st.profiles));
-  const linearCurve = () => setSettings(() => ({ curve: LINEAR.map(p => [...p] as Pt), curveAuto: false }));
-  const setCurvePoints = (curve: Pt[]) => setSettings(() => ({ curve, curveAuto: false }));
+  const fitCurve = () => setSettings('fit', (s, st) => refit(s, st.profiles));
+  const linearCurve = () => setSettings('linear', () => ({ curve: LINEAR.map(p => [...p] as Pt), curveAuto: false }));
+  const setCurvePoints = (curve: Pt[], key = 'curve') => setSettings(key, () => ({ curve, curveAuto: false }));
   /** Changes the generic process model; an auto-fitted curve follows it. */
   const setModel = (model: Settings['model']) =>
-    setSettings((s, st) => { const n = { ...s, model }; return n.curveAuto ? refit(n, st.profiles) : n; });
+    setSettings('model:' + changedKey(settings.model, model), (s, st) => { const n = { ...s, model }; return n.curveAuto ? refit(n, st.profiles) : n; });
   // Remembers the curve per profile, so coming back to a profile restores a hand-tuned curve.
   function selectProfile(id: string) {
-    setSettings((s, st) => {
+    setSettings('profile', (s, st) => {
       const curveByProfile = { ...s.curveByProfile, [s.profile]: { curve: s.curve, curveAuto: s.curveAuto } };
       const n = { ...s, profile: id, curveByProfile }, saved = curveByProfile[id];
       return saved && saved.curve && !saved.curveAuto ? { ...n, curve: structuredClone(saved.curve), curveAuto: false } : refit(n, st.profiles);
@@ -205,12 +264,12 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
   async function importCurve(file: File, madeForPositive: boolean) {
     try {
       const pts = /\.acv$/i.test(file.name) ? decodeAcv(await file.arrayBuffer()) : parseLutText(await file.text());
-      setCurvePoints(normalizeImportedCurve(pts, madeForPositive));
+      setCurvePoints(normalizeImportedCurve(pts, madeForPositive), 'import');
     } catch { toast.error("Couldn't read that curve file", { description: 'Supported: Photoshop .acv and 1D LUT .cube files.' }); }
   }
   function loadSavedCurve(id: string) {
     const c = st.curves.find(c => c.id === id);
-    if (c) setCurvePoints(structuredClone(c.points));
+    if (c) setCurvePoints(structuredClone(c.points), 'load-curve');
   }
   async function saveCurve(name: string) {
     const saved = await cloud('save the curve', () => repo.createCurve({ name, points: settings.curve || LINEAR, profileId: profile?.id ?? null }));
@@ -322,13 +381,15 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
   return {
     user, status, settings, profiles, curves: st.curves, tabs, active, cropping, cropDraft,
     profile, calibration, response, curve, tone, luts, preview, gidx, oriented, hist,
-    setSettings, setBw: (bw: Settings['bw']) => setSettings(() => ({ bw })),
-    setTone: (tone: Settings['tone']) => setSettings(() => ({ tone })),
-    resetTone: () => setSettings(() => ({ tone: structuredClone(DEFAULT_SETTINGS.tone) })),
-    setPrint: (p: Partial<Settings['print']>) => setSettings(s => ({ print: { ...s.print, ...p } })),
-    setView: (view: Settings['view']) => setSettings(() => ({ view })),
-    setSplit: (split: number) => setSettings(() => ({ split })),
-    openFiles, activate: (id: number) => set(st => id === st.activeId ? {} : activateState(st, id)), closeTab,
+    canUndo: st.history.past.length > 0, canRedo: st.history.future.length > 0, undo, redo,
+    setBw: (bw: Settings['bw']) => setSettings('bw:' + changedKey(settings.bw, bw), () => ({ bw })),
+    setTone: (tone: Settings['tone']) => setSettings('tone:' + changedKey(settings.tone, tone), () => ({ tone })),
+    resetTone: () => setSettings('reset-tone', () => ({ tone: structuredClone(DEFAULT_SETTINGS.tone) })),
+    setPrint: (p: Partial<Settings['print']>) => setSettings('print:' + Object.keys(p).join(), s => ({ print: { ...s.print, ...p } })),
+    // Not edits, so they stay out of the undo history.
+    setView: (view: Settings['view']) => set(st => ({ settings: { ...st.settings, view } })),
+    setSplit: (split: number) => set(st => ({ settings: { ...st.settings, split } })),
+    openFiles, activate: (id: number) => set(st => id === st.activeId ? {} : activateState(st, id)), closeTab, renameTab,
     rotate, flipPhoto, setAspect, startCrop, finishCrop, resetCrop, setCropDraft,
     fitCurve, linearCurve, setCurvePoints, setModel, selectProfile, exportAcv, importCurve, loadSavedCurve, saveCurve, deleteCurve,
     saveCalibration, deleteProfile,

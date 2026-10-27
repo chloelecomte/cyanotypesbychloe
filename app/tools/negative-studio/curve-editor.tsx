@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { curvePoint, drawCurve } from '@/lib/negative-studio/canvas';
 import { clamp, type Pt } from '@/lib/negative-studio/math';
 import { isLinear, LINEAR } from '@/lib/negative-studio/pipeline';
-import { SubHeading } from './controls';
+import { HelpTip, SubHeading } from './controls';
 import { useStudio } from './use-studio';
 
 /** The negative curve: click to add a point, drag to move, double-click or drag off the box to remove. */
@@ -61,6 +61,13 @@ export function CurveEditor() {
     <div>
       <div className="mt-3 flex items-center gap-2">
         <SubHeading className="m-0">Negative curve</SubHeading>
+        <HelpTip label="About the negative curve">
+          <h4>Negative curve</h4>
+          <p>Adjusts the negative before it&apos;s printed, so your photo&apos;s tones land where cyanotype can show them. Left is dense ink (stays paper white), right is clear film (prints deep blue).</p>
+          <p><b>Auto-fit</b> builds the curve that makes the predicted print match your black &amp; white as closely as the process allows. It follows the process profile and the generic sliders.</p>
+          <p><b>Linear</b> means no correction: a plain inverted photo. Use it to see what the process does on its own.</p>
+          <p><b>Editing by hand:</b> click to add a point, drag to move it, double-click or drag it off the box to remove it. Compare the rows of the strip at the bottom: the closer &ldquo;Predicted print&rdquo; is to &ldquo;Ideal print&rdquo;, the better.</p>
+        </HelpTip>
         <Badge variant="outline" className={settings.curveAuto && !linear ? 'border-success/40 text-success' : 'text-muted-foreground'}>
           {linear ? 'Linear (no correction)' : settings.curveAuto ? 'Auto-fitted' : 'Edited'}
         </Badge>

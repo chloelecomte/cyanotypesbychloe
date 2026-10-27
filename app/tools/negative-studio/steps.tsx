@@ -16,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { buildNegative, download, negativeName, pngWithDpi, printDims, printInWindow } from '@/lib/negative-studio/output';
 import { DEFAULT_SETTINGS, type Settings } from '@/lib/negative-studio/types';
 import { cn } from '@/lib/utils';
-import { BusyButton, Field, NumberField, SliderRow, SubHeading, Tip, useBusy } from './controls';
+import { BusyButton, Field, HelpTip, NumberField, SliderRow, SubHeading, Tip, useBusy } from './controls';
 import { CurveEditor } from './curve-editor';
 import { useStudio } from './use-studio';
 
@@ -178,7 +178,12 @@ function CurveStep() {
   return (
     <>
       <Tip>Cyanotype only reproduces part of the tonal range of an uncorrected negative — the lightest and darkest tones merge. The curve stretches your tones to fit. Check the <b>Cyanotype</b> view and the strip at the bottom.</Tip>
-      <Field label="Process profile" htmlFor={profileId} className="mt-3">
+      <Field label="Process profile" htmlFor={profileId} className="mt-3" help={<>
+        <h4>Process profile</h4>
+        <p>The process the preview and the auto-fit curve are based on.</p>
+        <p><b>Generic cyanotype</b> is an estimate of a typical print, which you can nudge with the two sliders below it.</p>
+        <p>After you calibrate (the gauge button at the top), your measured profile appears in this list. It replaces the estimate, so the sliders go away: your own prints answer those questions.</p>
+      </>}>
         <Select value={settings.profile} onValueChange={s.selectProfile}>
           <SelectTrigger id={profileId} className="w-full"><SelectValue /></SelectTrigger>
           <SelectContent>
@@ -189,7 +194,11 @@ function CurveStep() {
       </Field>
       {meta && <Tip className="mt-1.5">{meta}</Tip>}
       {settings.profile === 'model' && (
-        <div className="mt-1">
+        <div className="mt-3">
+          <div className="flex items-center gap-1">
+            <SubHeading className="m-0">Generic estimate</SubHeading>
+            <HelpTip label="About the generic estimate sliders"><ModelHelp /></HelpTip>
+          </div>
           <SliderRow
             label="Print exposure" value={settings.model.exposure} min={-2} max={2} step={0.1} def={0}
             format={v => v === 0 ? 'normal' : (v > 0 ? '+' : '') + v.toFixed(1) + ' stops'}
@@ -234,6 +243,19 @@ function CurveStep() {
       </CheckRow>
     </>
   );
+}
+
+function ModelHelp() {
+  return <>
+    <h4>Print exposure</h4>
+    <p>How your exposure compares with your <b>standard printing time</b>: the shortest time that turns clear film fully blue. &ldquo;Normal&rdquo; assumes you print at that time.</p>
+    <p>Move it <b>up</b> if you expose longer, for example on a very sunny day or with a longer timer. The whole print darkens and the palest highlights pick up blue, so the auto-fit curve adds ink there to keep them white. Move it <b>down</b> if you expose for less: shadows then stop reaching full blue.</p>
+    <h4>Tonal range of the process</h4>
+    <p>How many of the 21 steps of an uncorrected (linear) step tablet print as different tones. Cyanotype only shows part of that range; the default assumes about 16.</p>
+    <p><b>Lower</b> it if your prints look harsh, with highlights blown out to paper white and shadows blocked up into solid blue. The curve then squeezes your photo&apos;s tones into a narrower band. <b>Raise</b> it if prints look flat. If you&apos;ve printed a linear tablet, count its distinct steps and use that.</p>
+    <h4>Why change them</h4>
+    <p>They get the preview and the curve closer to your real prints before you calibrate. They only affect the preview and the auto-fit curve: if you&apos;ve edited the curve by hand, click <b>Auto-fit curve</b> to apply them.</p>
+  </>;
 }
 
 function SaveCurveButton({ defaultName, onSaved }: { defaultName: string; onSaved: (id: string) => void }) {
