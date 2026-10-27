@@ -51,8 +51,9 @@ Setup steps: [docs/cloud-setup.md](docs/cloud-setup.md).
 ```
 app/(site)/                 public pages (homepage, login)
 app/auth/                   OAuth callback and sign-out
-app/tools/negative-studio/  the studio page (auth-gated)
-lib/negative-studio/        pipeline, file formats, cloud persistence, UI controller
+app/tools/negative-studio/  the studio page (auth-gated): React components and state
+components/ui/              shadcn/ui components (Tailwind), used by the studio
+lib/negative-studio/        pipeline, canvas drawing, file formats, cloud persistence
 lib/supabase/               Supabase clients for server, browser and proxy
 proxy.ts                    refreshes the session; sends signed-out visitors of /tools to /login
 supabase/migrations/        database schema with row-level security
