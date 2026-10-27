@@ -1,19 +1,25 @@
 // Static markup for the studio, rendered once and then driven by controller.ts.
+import { icon } from './icons';
+
 export const MARKUP = /* html */ `
 <div class="app">
   <header>
     <h1><a href="/">Cyanotype <span>Negative</span> Studio</a></h1>
     <div class="spacer"></div>
-    <span class="savestatus" id="saveStatus"></span>
-    <button id="btnCalibrate">Calibrate my process…</button>
-    <button id="btnHelp">How it works</button>
-    <div class="user"><img id="userAvatar" alt="" hidden><span id="userName"></span><form action="/auth/signout" method="post"><button type="submit">Sign out</button></form></div>
+    <span class="savestatus" id="saveStatus" role="status"></span>
+    <button class="iconbtn" id="btnCalibrate" title="Calibrate my process" aria-label="Calibrate my process">${icon('calibrate', 18)}</button>
+    <button class="iconbtn" id="btnHelp" title="How it works" aria-label="How it works">${icon('help', 18)}</button>
+    <button class="avatar" popovertarget="userMenu" title="Account" aria-label="Account"><img id="userAvatar" alt="" hidden><span id="userInitial"></span></button>
+    <div class="menu" id="userMenu" popover>
+      <div class="menu-name" id="userName"></div>
+      <form action="/auth/signout" method="post"><button type="submit" class="menu-item">${icon('logout')}Sign out</button></form>
+    </div>
   </header>
 
   <aside id="panel">
     <!-- 1 -->
     <section class="step" id="s-open">
-      <h2><span class="n">1</span>Open a photo<span class="chev">▾</span></h2>
+      <h2><span class="n">1</span>Open a photo<span class="chev">${icon('chevron', 14)}</span></h2>
       <div class="body">
         <div class="drop" id="drop">Click to choose photos<br><small>or drag them anywhere onto this window — each opens in its own tab</small></div>
         <input type="file" id="file" accept="image/*,.tif,.tiff,.heic" multiple hidden>
@@ -23,12 +29,12 @@ export const MARKUP = /* html */ `
 
     <!-- 2 -->
     <section class="step" id="s-crop">
-      <h2><span class="n">2</span>Crop &amp; rotate<span class="chev">▾</span></h2>
+      <h2><span class="n">2</span>Crop &amp; rotate<span class="chev">${icon('chevron', 14)}</span></h2>
       <div class="body">
         <div class="btns tight">
-          <button id="rotL" title="Rotate left">⟲ Rotate</button>
-          <button id="rotR" title="Rotate right">⟳ Rotate</button>
-          <button id="flipH" title="Flip the photo itself (not the print mirror)">⇋ Flip</button>
+          <button id="rotL" title="Rotate left">${icon('rotL', 14)}Rotate</button>
+          <button id="rotR" title="Rotate right">${icon('rotR', 14)}Rotate</button>
+          <button id="flipH" title="Flip the photo itself (not the print mirror)">${icon('flip', 14)}Flip</button>
         </div>
         <div class="grid2">
           <div class="row"><label>Aspect ratio</label>
@@ -37,14 +43,14 @@ export const MARKUP = /* html */ `
               <option value="1">Square 1:1</option><option value="0.8">4:5 (8×10)</option><option value="1.25">5:4 (10×8)</option>
               <option value="0.7143">5:7</option><option value="1.4">7:5</option><option value="0.6667">2:3</option><option value="1.5">3:2</option>
             </select></div>
-          <div class="btns" style="margin:4px 0"><button id="cropBtn">✂ Crop…</button><button id="cropReset">Reset</button></div>
+          <div class="btns" style="margin:4px 0"><button id="cropBtn">${icon('crop', 14)}Crop…</button><button id="cropReset">Reset</button></div>
         </div>
       </div>
     </section>
 
     <!-- 3 -->
     <section class="step" id="s-bw">
-      <h2><span class="n">3</span>Black &amp; white and tone<span class="chev">▾</span></h2>
+      <h2><span class="n">3</span>Black &amp; white and tone<span class="chev">${icon('chevron', 14)}</span></h2>
       <div class="body">
         <div class="tip">Like a coloured filter on a film camera: choose which colours become light or dark. <b>Red</b> darkens blue skies, <b>green</b> lightens foliage.</div>
         <div class="btns tight" id="filters"></div>
@@ -58,14 +64,14 @@ export const MARKUP = /* html */ `
 
     <!-- 4 -->
     <section class="step" id="s-neg">
-      <h2><span class="n">4</span>Negative &amp; curve<span class="chev">▾</span></h2>
+      <h2><span class="n">4</span>Negative &amp; curve<span class="chev">${icon('chevron', 14)}</span></h2>
       <div class="body">
         <div class="tip">Cyanotype only reproduces part of the tonal range of an uncorrected negative — the lightest and darkest tones merge. The curve stretches your tones to fit. Check the <b>Cyanotype</b> view and the strip at the bottom.</div>
         <div class="row"><label>Process profile</label><select id="profile"></select></div>
         <div class="profilemeta" id="profileMeta"></div>
         <div id="modelSliders"></div>
         <div class="btns">
-          <button class="primary" id="fitCurve" title="Build the curve that makes the predicted print match your black & white">✦ Auto-fit curve</button>
+          <button class="primary" id="fitCurve" title="Build the curve that makes the predicted print match your black & white">${icon('sparkles', 14)}Auto-fit curve</button>
           <button id="linCurve" title="No correction: a plain inverted image">Linear</button>
         </div>
         <div style="display:flex;align-items:center;gap:8px;margin-top:10px">
@@ -80,8 +86,8 @@ export const MARKUP = /* html */ `
           <div class="btns tight" style="margin:4px 0"><button id="saveCurve">Save…</button><button id="delCurve">Delete</button></div>
         </div>
         <div class="btns tight">
-          <button id="exportAcv" title="Photoshop curve file, applied after inverting">Export .acv</button>
-          <button id="importCurve">Import .acv / .cube…</button>
+          <button id="exportAcv" title="Photoshop curve file, applied after inverting">${icon('download', 14)}Export .acv</button>
+          <button id="importCurve">${icon('upload', 14)}Import .acv / .cube…</button>
           <input type="file" id="curveFile" accept=".acv,.cube,.txt,.csv" hidden>
         </div>
         <label class="check"><input type="checkbox" id="importPositive"> Imported curve was made for the positive (applied before inverting, as in EDN)</label>
@@ -90,7 +96,7 @@ export const MARKUP = /* html */ `
 
     <!-- 5 -->
     <section class="step" id="s-print">
-      <h2><span class="n">5</span>Print the negative<span class="chev">▾</span></h2>
+      <h2><span class="n">5</span>Print the negative<span class="chev">${icon('chevron', 14)}</span></h2>
       <div class="body">
         <div class="grid2">
           <div class="row"><label>Image width (inches)</label><input type="number" id="pWidth" min="1" max="40" step="0.25"></div>
@@ -105,8 +111,8 @@ export const MARKUP = /* html */ `
         <label class="check"><input type="checkbox" id="pTablet"> Add a 21-step tablet below the image</label>
         <label class="check" style="padding-left:20px"><input type="checkbox" id="pTabletCorr"> Apply the curve to the tablet (prints as even steps when calibrated)</label>
         <div class="btns">
-          <button class="primary" id="exportPng">⬇ Save negative (PNG)</button>
-          <button id="printNow">Print…</button>
+          <button class="primary" id="exportPng">${icon('download', 14)}Save negative (PNG)</button>
+          <button id="printNow">${icon('print', 14)}Print…</button>
         </div>
         <div class="tip">
           <b>Printing tips:</b> print on inkjet transparency film, on the rough (coated) side. Use your printer's best quality, <b>colour</b> mode (not greyscale), and turn colour management off ("Printer manages colours" or "No colour adjustment"). Always print negatives with the same settings you used for your calibration tablet. Let the ink dry before contact printing.
@@ -116,7 +122,7 @@ export const MARKUP = /* html */ `
   </aside>
 
   <main>
-    <div class="phototabs" id="photoTabs" role="tablist"><button class="newtab" id="newTab" title="Open another photo in a new tab">+</button></div>
+    <div class="phototabs" id="photoTabs" role="tablist"><button class="newtab" id="newTab" title="Open another photo in a new tab" aria-label="Open another photo">${icon('plus')}</button></div>
     <div class="viewbar">
       <div class="seg" id="views">
         <button data-v="orig">Original</button>
@@ -142,7 +148,7 @@ export const MARKUP = /* html */ `
 
 <!-- Calibration dialog -->
 <dialog id="calDlg">
-  <div class="dlg-head"><h2>Calibrate for your paper, chemistry and light</h2><div style="flex:1"></div><button id="calClose">Close</button></div>
+  <div class="dlg-head"><h2>Calibrate for your paper, chemistry and light</h2><div style="flex:1"></div><button class="iconbtn" id="calClose" title="Close" aria-label="Close">${icon('close', 18)}</button></div>
   <div class="dlg-body">
     <p>The built-in "Generic cyanotype" profile is only an estimate. Cyanotype results vary a lot with paper, sensitizer, UV source, printer and film. A calibration measures <i>your</i> process once, so the curve and the preview match your real prints.</p>
     <h3>1 · Print the calibration sheet</h3>
@@ -152,7 +158,7 @@ export const MARKUP = /* html */ `
       <div class="row"><label>Film size</label><select id="sheetSize"><option value="letter">US Letter (8.5 × 11 in)</option><option value="a4">A4 (210 × 297 mm)</option></select></div>
     </div>
     <p id="sheetPlan" style="color:var(--muted)"></p>
-    <div class="btns"><button class="primary" id="dlSheet">⬇ Save calibration sheet</button><button id="printSheet">Print sheet…</button></div>
+    <div class="btns"><button class="primary" id="dlSheet">${icon('download', 14)}Save calibration sheet</button><button id="printSheet">${icon('print', 14)}Print sheet…</button></div>
     <div class="btns tight"><span style="align-self:center;color:var(--muted);font-size:12px">Single strips:</span><button id="dlTablet">Linear</button><button id="dlTabletCorr" title="To check a finished calibration: should print as even steps">Current curve</button></div>
     <h3>2 · Expose it and find your exposure time</h3>
     <ol>
@@ -195,7 +201,7 @@ export const MARKUP = /* html */ `
 
 <!-- Help dialog -->
 <dialog id="helpDlg">
-  <div class="dlg-head"><h2>How digital negatives for cyanotype work</h2><div style="flex:1"></div><button id="helpClose">Close</button></div>
+  <div class="dlg-head"><h2>How digital negatives for cyanotype work</h2><div style="flex:1"></div><button class="iconbtn" id="helpClose" title="Close" aria-label="Close">${icon('close', 18)}</button></div>
   <div class="dlg-body">
     <h3>The short version</h3>
     <ol>
