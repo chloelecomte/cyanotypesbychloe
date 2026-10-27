@@ -7,6 +7,7 @@ import {
   readingsToDarkness, responseFn as responseFor, toneFn as toneFor,
 } from './pipeline';
 import { decodeAcv, encodeAcv, normalizeImportedCurve, parseLutText, withPhys } from './files';
+import { icon } from './icons';
 import { MARKUP } from './markup';
 import type { NewCalibration, Repo } from './repo';
 import { DEFAULT_SETTINGS, mergeSettings, type Profile, type SavedCurve, type Settings, type StudioData, type StudioUser, type View } from './types';
@@ -41,23 +42,28 @@ export function mountStudio(root: HTMLElement, opts: { user: StudioUser; data: S
   // ---------- Cloud saving ----------
   let saveTimer: ReturnType<typeof setTimeout> | undefined, dirty = false, saving = false;
   const status = $('#saveStatus');
-  const setStatus = (text: string, err = false) => { status.textContent = text; status.classList.toggle('err', err); };
+  // An icon on its own when things are fine; the text stays visible when saving failed.
+  const STATUS = { busy: 'spinner', ok: 'cloudOk', err: 'cloudErr' } as const;
+  const setStatus = (text: string, kind: keyof typeof STATUS) => {
+    status.innerHTML = icon(STATUS[kind], 18) + `<span${kind === 'err' ? '' : ' class="sr-only"'}>${esc(text)}</span>`;
+    status.title = text; status.className = 'savestatus ' + kind;
+  };
   function saveState() {
     dirty = true; clearTimeout(saveTimer);
     saveTimer = setTimeout(flushSave, SAVE_DELAY);
   }
   async function flushSave() {
     if (!dirty || saving) return;
-    dirty = false; saving = true; setStatus('Saving…');
-    try { await repo.saveSettings(state); if (!destroyed) setStatus(dirty ? 'Saving…' : 'Saved'); }
-    catch { dirty = true; if (!destroyed) setStatus('Not saved — will retry', true); saveTimer = setTimeout(flushSave, 5000); }
+    dirty = false; saving = true; setStatus('Saving…', 'busy');
+    try { await repo.saveSettings(state); if (!destroyed) setStatus(dirty ? 'Saving…' : 'Saved', dirty ? 'busy' : 'ok'); }
+    catch { dirty = true; if (!destroyed) setStatus('Not saved — will retry', 'err'); saveTimer = setTimeout(flushSave, 5000); }
     finally { saving = false; if (dirty && !destroyed) saveState(); }
   }
   // Something like a delete or a new profile: tell the user if the cloud call fails.
   async function cloud<T>(what: string, fn: () => Promise<T>): Promise<T | undefined> {
-    setStatus('Saving…');
-    try { const r = await fn(); setStatus('Saved'); return r; }
-    catch (e) { setStatus('Not saved', true); alert(`Couldn't ${what}: ${(e as Error).message}`); return undefined; }
+    setStatus('Saving…', 'busy');
+    try { const r = await fn(); setStatus('Saved', 'ok'); return r; }
+    catch (e) { setStatus('Not saved', 'err'); alert(`Couldn't ${what}: ${(e as Error).message}`); return undefined; }
   }
 
   // ---------- Process model ----------
@@ -215,7 +221,7 @@ export function mountStudio(root: HTMLElement, opts: { user: StudioUser; data: S
       const el = document.createElement('div');
       el.className = 'phototab' + (t === active ? ' on' : ''); el.role = 'tab'; el.ariaSelected = String(t === active);
       el.title = t.info;
-      el.innerHTML = `<span class="name">${esc(t.name)}</span><button class="close" title="Close this photo" aria-label="Close ${esc(t.name)}">×</button>`;
+      el.innerHTML = `<span class="name">${esc(t.name)}</span><button class="close" title="Close this photo" aria-label="Close ${esc(t.name)}">${icon('close', 14)}</button>`;
       el.onclick = () => activate(t);
       el.onauxclick = e => { if (e.button === 1) closeTab(t); };
       el.querySelector<HTMLButtonElement>('.close')!.onclick = e => { e.stopPropagation(); closeTab(t); };
@@ -520,11 +526,11 @@ export function mountStudio(root: HTMLElement, opts: { user: StudioUser; data: S
     return p.mirror ? mirrored(out) : out;
   }
   async function withBusy(btn: HTMLButtonElement, fn: () => Promise<void>) {
-    const t = btn.textContent; btn.disabled = true; btn.textContent = 'Working…';
+    const t = btn.innerHTML; btn.disabled = true; btn.innerHTML = icon('spinner', 14) + 'Working…';
     await new Promise(r => setTimeout(r, 30));
     try { await fn(); }
     catch (e) { const m = (e as Error).message; alert(m === 'too big' ? 'That negative is too large to build — reduce the width or resolution.' : 'Something went wrong: ' + m); }
-    finally { btn.disabled = false; btn.textContent = t; }
+    finally { btn.disabled = false; btn.innerHTML = t; }
   }
   $<HTMLButtonElement>('#exportPng').onclick = e => {
     if (!src) return alert('Open a photo first.');
@@ -984,11 +990,12 @@ export function mountStudio(root: HTMLElement, opts: { user: StudioUser; data: S
     refreshProfiles();
   }
   $('#userName').textContent = user.name;
+  $('#userInitial').textContent = user.name.trim().charAt(0).toUpperCase();
   if (user.avatarUrl) { const img = $<HTMLImageElement>('#userAvatar'); img.src = user.avatarUrl; img.hidden = false; }
   syncControls(); refreshSavedCurves();
   if (!state.curve) fitCurve();
   update('lut', false);
-  setStatus('Saved to your account');
+  setStatus('Saved to your account', 'ok');
   importLegacy();
 
   // Best effort: write pending changes when the tab is hidden or closed.
