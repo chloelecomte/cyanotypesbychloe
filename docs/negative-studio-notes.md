@@ -1,5 +1,9 @@
 # Negative Studio — notes for the Next.js / Vercel / Supabase revamp
 
+> **Status (Oct 2026):** the rebuild described here is implemented: see `lib/negative-studio/`,
+> `supabase/migrations/` and [cloud-setup.md](cloud-setup.md). Signed-out local mode was dropped on
+> purpose: the tools require a GitHub sign-in.
+
 Context for whoever (human or agent) picks up the rebuild. The current app is a single
 self-contained file, [`negative-studio/index.html`](../negative-studio/index.html), with no
 dependencies and no backend.
