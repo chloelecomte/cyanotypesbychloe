@@ -10,7 +10,7 @@ export const metadata: Metadata = { title: 'Cyanotype Negative Studio' };
 
 export default function NegativeStudioPage() {
   return (
-    <Suspense fallback={<div className="ns"><div className="loading">Loading Negative Studio…</div></div>}>
+    <Suspense fallback={<div className="studio grid h-screen place-items-center text-sm text-muted-foreground">Loading Negative Studio…</div>}>
       <Studio />
     </Suspense>
   );
