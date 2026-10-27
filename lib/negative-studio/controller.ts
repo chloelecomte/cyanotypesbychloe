@@ -148,14 +148,80 @@ export function mountStudio(root: HTMLElement, opts: { user: StudioUser; data: S
         img = await new Promise<HTMLImageElement>((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(file); });
       }
       if (destroyed) return;
-      src = img; srcName = (file.name || 'photo').replace(/\.[^.]+$/, '');
-      crop = null; rot = 0; flip = false;
-      $('#fileinfo').textContent = `${file.name || 'photo'} · ${img.width} × ${img.height} px`;
-      $('#empty').classList.add('hidden');
-      rebuildPreview(); applyAspect(); update('lut', false);
+      // A new photo starts from the current tab's edits, like the old single-photo studio did.
+      openTab({
+        id: nextTabId++, src: img, name: (file.name || 'photo').replace(/\.[^.]+$/, ''),
+        info: `${file.name || 'photo'} · ${img.width} × ${img.height} px`,
+        rot: 0, flip: false, crop: null, prev: null, orientPrev: null, settings: structuredClone(photoSettings()),
+      });
     } catch {
-      alert("Sorry, this file couldn't be opened. Try exporting it as a JPEG, PNG or TIFF (TIFF works in Safari).");
+      alert(`Sorry, ${file.name || 'this file'} couldn't be opened. Try exporting it as a JPEG, PNG or TIFF (TIFF works in Safari).`);
     }
+  }
+  async function loadFiles(files: File[]) {
+    for (const f of files) { if (destroyed) return; await loadFile(f); }
+  }
+
+  // ---------- Photo tabs ----------
+  // The live variables above (src, rot, crop, prev…) and the photo keys of `state` always belong to
+  // the active tab; the other tabs keep their own copy until they are activated again.
+  const PHOTO_KEYS = ['aspect', 'bw', 'tone', 'curve', 'curveAuto', 'print'] as const;
+  type PhotoSettings = Pick<Settings, typeof PHOTO_KEYS[number]>;
+  type Tab = {
+    id: number; src: Source; name: string; info: string; rot: number; flip: boolean; crop: Crop | null;
+    prev: typeof prev; orientPrev: typeof orientPrev; settings: PhotoSettings;
+  };
+  const tabs: Tab[] = [];
+  let active: Tab | null = null, nextTabId = 1;
+  const fileinfoDefault = $('#fileinfo').innerHTML;
+  const photoSettings = () => Object.fromEntries(PHOTO_KEYS.map(k => [k, state[k]])) as PhotoSettings;
+  function stashActive() {
+    if (!active) return;
+    if (cropMode) setCropMode(false);
+    Object.assign(active, { src, name: srcName, rot, flip, crop, prev, orientPrev, settings: photoSettings() });
+  }
+  function activate(tab: Tab | null) {
+    if (tab === active) return;
+    stashActive(); drag = null; active = tab;
+    if (tab) {
+      ({ src, name: srcName, rot, flip, crop, prev, orientPrev } = tab);
+      Object.assign(state, tab.settings);
+      // The process profile is shared, so it may have changed since this tab was last shown.
+      if (state.curveAuto || !state.curve) fitCurve();
+      if (!prev) { applyAspect(); rebuildPreview(); }
+    } else {
+      src = null; srcName = ''; rot = 0; flip = false; crop = null; prev = null; orientPrev = null;
+    }
+    $('#fileinfo').innerHTML = tab ? esc(tab.info) : fileinfoDefault;
+    $('#empty').classList.toggle('hidden', !!tab);
+    syncControls(); renderTabs(); update('lut', false);
+  }
+  function openTab(tab: Tab) {
+    // Every photo gets its own tab, placed after the active one.
+    tabs.splice(active ? tabs.indexOf(active) + 1 : tabs.length, 0, tab);
+    activate(tab);
+  }
+  function closeTab(tab: Tab) {
+    const i = tabs.indexOf(tab);
+    if (tab === active) activate(tabs[i + 1] ?? tabs[i - 1] ?? null);
+    tabs.splice(i, 1);
+    if ('close' in tab.src) tab.src.close();
+    renderTabs();
+  }
+  function renderTabs() {
+    const bar = $('#photoTabs');
+    bar.querySelectorAll('.phototab').forEach(el => el.remove());
+    for (const t of tabs) {
+      const el = document.createElement('div');
+      el.className = 'phototab' + (t === active ? ' on' : ''); el.role = 'tab'; el.ariaSelected = String(t === active);
+      el.title = t.info;
+      el.innerHTML = `<span class="name">${esc(t.name)}</span><button class="close" title="Close this photo" aria-label="Close ${esc(t.name)}">×</button>`;
+      el.onclick = () => activate(t);
+      el.onauxclick = e => { if (e.button === 1) closeTab(t); };
+      el.querySelector<HTMLButtonElement>('.close')!.onclick = e => { e.stopPropagation(); closeTab(t); };
+      bar.insertBefore(el, $('#newTab'));
+    }
+    if (active) bar.querySelector('.phototab.on')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   }
 
   // ---------- Rendering ----------
@@ -718,14 +784,13 @@ export function mountStudio(root: HTMLElement, opts: { user: StudioUser; data: S
   root.querySelectorAll<HTMLElement>('section.step>h2').forEach(h => h.onclick = () => h.parentElement!.classList.toggle('closed'));
 
   // file open
-  $('#drop').onclick = () => $('#file').click();
-  $<HTMLInputElement>('#file').onchange = e => { const input = e.target as HTMLInputElement; if (input.files?.[0]) loadFile(input.files[0]); input.value = ''; };
+  $('#drop').onclick = $('#newTab').onclick = () => $('#file').click();
+  $<HTMLInputElement>('#file').onchange = e => { const input = e.target as HTMLInputElement; loadFiles([...(input.files ?? [])]); input.value = ''; };
   window.addEventListener('dragover', e => { e.preventDefault(); }, { signal });
   window.addEventListener('drop', e => {
     e.preventDefault();
     if ($<HTMLDialogElement>('#calDlg').open) return;
-    const f = [...(e.dataTransfer?.files ?? [])].find(f => f.type.startsWith('image/') || /\.(tiff?|heic)$/i.test(f.name));
-    if (f) loadFile(f);
+    loadFiles([...(e.dataTransfer?.files ?? [])].filter(f => f.type.startsWith('image/') || /\.(tiff?|heic)$/i.test(f.name)));
   }, { signal });
 
   // ---------- Calibration ----------
@@ -935,5 +1000,6 @@ export function mountStudio(root: HTMLElement, opts: { user: StudioUser; data: S
     destroyed = true;
     ac.abort();
     resizeObserver.disconnect();
+    for (const t of tabs) if ('close' in t.src) t.src.close();
   };
 }
