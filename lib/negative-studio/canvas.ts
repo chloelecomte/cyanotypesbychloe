@@ -231,7 +231,9 @@ export function drawCalChart(c: HTMLCanvasElement, readings: Readings | null) {
 export function summarizeReadings(r: Readings) {
   const ds = readingsToDarkness(r.L), distinct = countDistinct(ds);
   const first = ds.findIndex(d => d > 0.015) + 1, last = ds.findIndex(d => d > 0.985) + 1;
-  return { distinct, first: Math.max(1, first), last: last || 21, overexposed: !!last && last < 15, underexposed: first > 7 };
+  // Readings are normalized to patch 1, so one row can't tell overexposure from film that only
+  // holds back UV under heavy ink — both reach full blue early.
+  return { distinct, first: Math.max(1, first), last: last || 21, shortRange: !!last && last < 15, underexposed: first > 7 };
 }
 
 export type Scan = { canvas: HTMLCanvasElement; data: ImageData };
