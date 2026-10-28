@@ -23,7 +23,7 @@ export function HelpDialog({ open, onOpenChange }: { open: boolean; onOpenChange
           <p>Images with clear shapes, good midtone separation and not too many large deep-shadow areas tend to print well. Cyanotype is a fairly short-scale process with a beautiful but limited range of blues.</p>
           <h3>Further reading</h3>
           <p>Christina Z. Anderson&apos;s books (e.g. <i>Cyanotype: The Blueprint in Contemporary Practice</i>), Peter Mrhar&apos;s Easy Digital Negatives site and manual, and Mark Nelson&apos;s Precision Digital Negatives cover calibration in depth.</p>
-          <p className="mt-3">Everything runs on your computer — your photos never leave it. Settings, curves and calibrations are saved to your account, so they follow you to any computer.</p>
+          <p className="mt-3">Everything runs on your computer — your photos never leave it. Open photos and their edits are kept in this browser, so they&apos;re still here after a reload. Settings, curves and calibrations are saved to your account, so they follow you to any computer.</p>
         </div>
       </DialogContent>
     </Dialog>

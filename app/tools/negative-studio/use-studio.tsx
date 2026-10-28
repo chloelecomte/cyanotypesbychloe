@@ -2,7 +2,7 @@
 
 // All of the studio's state, and every change to it. Components read it through useStudio().
 // Image processing stays in the browser; photos are never uploaded. Only settings, profiles and
-// curves go to Supabase through `repo`.
+// curves go to Supabase through `repo`. Open photos are kept in this browser by `photo-store`.
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Autosaver, type SaveStatus } from '@/lib/negative-studio/autosave';
@@ -12,6 +12,7 @@ import {
 import { decodeAcv, encodeAcv, normalizeImportedCurve, parseLutText } from '@/lib/negative-studio/files';
 import type { Pt, RGB } from '@/lib/negative-studio/math';
 import { download, type Photo } from '@/lib/negative-studio/output';
+import { deleteFile, loadSession, saveFile, saveSession, type StoredSession } from '@/lib/negative-studio/photo-store';
 import {
   curveFn, fitCurve as fitCurveFor, LINEAR, readingsToDarkness, responseFn as responseFor, toneFn as toneFor,
 } from '@/lib/negative-studio/pipeline';
@@ -33,7 +34,8 @@ type History = { past: Snapshot[]; future: Snapshot[]; key: string; at: number }
 const NO_HISTORY: History = { past: [], future: [], key: '', at: 0 };
 const HISTORY_LIMIT = 100, COALESCE_MS = 1000;
 
-export type Tab = Photo & { id: number; name: string; info: string; settings: PhotoSettings; history: History };
+/** `key` names the tab's file in the browser's photo store; `id` only lasts until the page is reloaded. */
+export type Tab = Photo & { id: number; key: string; name: string; info: string; settings: PhotoSettings; history: History };
 
 type State = {
   settings: Settings;
@@ -81,6 +83,19 @@ const PLACEHOLDER_NAME = /^(tempImage\w*|image|img|photo|blob|untitled|screensho
 function photoName(file: File, id: number) {
   const base = (file.name || '').replace(/\.[^.]+$/, '').trim();
   return base && !PLACEHOLDER_NAME.test(base) ? base : `Photo ${id}`;
+}
+
+async function decode(file: Blob): Promise<Source> {
+  try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); }
+  catch {
+    return new Promise<HTMLImageElement>((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(file); });
+  }
+}
+
+/** What the browser keeps of the open photos: everything but the pixels and the undo history. */
+function storedSession(st: State): StoredSession {
+  const tabs = stash(st).map(({ key, name, info, rot, flip, crop, settings }) => ({ key, name, info, rot, flip, crop, settings }));
+  return { tabs, activeKey: st.tabs.find(t => t.id === st.activeId)?.key ?? null };
 }
 
 function snapshot(st: State): Snapshot {
@@ -167,21 +182,18 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
   // ---------- Photo tabs ----------
   async function loadFile(file: File) {
     let img: Source;
-    try {
-      try { img = await createImageBitmap(file, { imageOrientation: 'from-image' }); }
-      catch {
-        img = await new Promise<HTMLImageElement>((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(file); });
-      }
-    } catch {
+    try { img = await decode(file); } catch {
       toast.error(`${file.name || 'This file'} couldn't be opened`, { description: 'Try exporting it as a JPEG, PNG or TIFF (TIFF works in Safari).' });
       return;
     }
+    const key = crypto.randomUUID();
+    saveFile(user.id, key, file).catch(storageFailed);
     // A new photo starts from the default edits, and opens after the current tab.
     set(st => {
       const tabs = stash(st), at = st.activeId != null ? tabs.findIndex(t => t.id === st.activeId) + 1 : tabs.length;
       const settings = newPhotoSettings(st);
       const tab: Tab = {
-        id: st.nextId, src: img, name: photoName(file, st.nextId), info: `${file.name || 'Pasted image'} · ${img.width} × ${img.height} px`,
+        id: st.nextId, key, src: img, name: photoName(file, st.nextId), info: `${file.name || 'Pasted image'} · ${img.width} × ${img.height} px`,
         rot: 0, flip: false, crop: null, settings: photoSettings(settings), history: NO_HISTORY,
       };
       return { tabs: [...tabs.slice(0, at), tab, ...tabs.slice(at)], activeId: tab.id, nextId: st.nextId + 1, settings, cropDraft: undefined, history: NO_HISTORY };
@@ -199,6 +211,7 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
       return { ...patch, tabs: (patch.tabs ?? st.tabs).filter(t => t.id !== id) };
     });
     if ('close' in tab.src) tab.src.close();
+    deleteFile(user.id, tab.key).catch(() => { /* removed on the next load */ });
   }
   const renameTab = (id: number, name: string) =>
     set(st => ({ tabs: st.tabs.map(t => t.id === id ? { ...t, name } : t) }));
@@ -206,6 +219,57 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
   const tabsRef = useRef(tabs);
   useEffect(() => { tabsRef.current = tabs; }, [tabs]);
   useEffect(() => () => { for (const t of tabsRef.current) if ('close' in t.src) t.src.close(); }, []);
+
+  // ---------- Keeping open photos across reloads ----------
+  const storageWarned = useRef(false);
+  function storageFailed() {
+    if (storageWarned.current) return;
+    storageWarned.current = true;
+    toast.error("Your photos can't be kept in this browser", { description: 'They will be gone if you reload or close the page. The browser may be out of space or in private mode.' });
+  }
+  // Nothing is written until the saved photos are back, so an empty studio can't overwrite them.
+  const [restoring, setRestoring] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const saved = await loadSession(user.id);
+        if (!saved || cancelled) return;
+        const restored: Omit<Tab, 'id'>[] = [];
+        for (const t of saved.session.tabs) {
+          try { restored.push({ ...t, src: await decode(saved.files.get(t.key)!), settings: t.settings as PhotoSettings, history: NO_HISTORY }); }
+          catch { /* a file the browser can no longer open */ }
+        }
+        if (cancelled) { for (const t of restored) if ('close' in t.src) t.src.close(); return; }
+        set(st => {
+          // Photos opened while these were loading stay open, after them.
+          const back = restored.map((t, i): Tab => ({ ...t, id: st.nextId + i, settings: { ...photoSettings(st.settings), ...t.settings } }));
+          const withBack = { ...st, tabs: [...back, ...st.tabs], nextId: st.nextId + back.length };
+          const activeId = st.activeId ?? back.find(t => t.key === saved.session.activeKey)?.id ?? back[0]?.id ?? null;
+          return { tabs: withBack.tabs, nextId: withBack.nextId, ...(activeId !== st.activeId ? activateState(withBack, activeId) : {}) };
+        });
+      } catch { storageFailed(); }
+      finally { if (!cancelled) setRestoring(false); }
+    })();
+    return () => { cancelled = true; };
+    // Runs once, for the signed-in user.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const stRef = useRef(st);
+  useEffect(() => { stRef.current = st; }, [st]);
+  useEffect(() => {
+    if (restoring) return;
+    const t = setTimeout(() => saveSession(user.id, storedSession(st)).catch(storageFailed), 500);
+    return () => clearTimeout(t);
+  }, [restoring, st, user.id]);
+  useEffect(() => {
+    if (restoring) return;
+    // A reload right after an edit: write it now rather than after the delay.
+    const now = () => { if (document.visibilityState === 'hidden') saveSession(user.id, storedSession(stRef.current)).catch(() => {}); };
+    document.addEventListener('visibilitychange', now);
+    window.addEventListener('pagehide', now);
+    return () => { document.removeEventListener('visibilitychange', now); window.removeEventListener('pagehide', now); };
+  }, [restoring, user.id]);
 
   // ---------- Crop & orientation ----------
   function rotate(quarterTurns: 1 | -1) {
