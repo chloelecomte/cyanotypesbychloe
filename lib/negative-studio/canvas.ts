@@ -136,10 +136,19 @@ export function renderCrop(c: HTMLCanvasElement, oriented: HTMLCanvasElement, cr
   const x = cr.x * w, y = cr.y * h, cw = cr.w * w, ch = cr.h * h;
   ctx.fillStyle = 'rgba(0,0,0,.6)';
   ctx.fillRect(0, 0, w, y); ctx.fillRect(0, y + ch, w, h - y - ch); ctx.fillRect(0, y, x, ch); ctx.fillRect(x + cw, y, w - x - cw, ch);
-  ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, w / 600); ctx.strokeRect(x, y, cw, ch);
+  const lw = Math.max(1, w / 600);
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = lw; ctx.strokeRect(x, y, cw, ch);
   ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.beginPath();
   for (let k = 1; k < 3; k++) { ctx.moveTo(x + cw * k / 3, y); ctx.lineTo(x + cw * k / 3, y + ch); ctx.moveTo(x, y + ch * k / 3); ctx.lineTo(x + cw, y + ch * k / 3); }
   ctx.stroke();
+  if (!crop) return;
+  // corner handles: the crop can be resized from there
+  const len = Math.min(Math.max(w, h) / 30, cw / 3, ch / 3);
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = lw * 3; ctx.lineCap = 'square'; ctx.beginPath();
+  for (const [px, py, sx, sy] of [[x, y, 1, 1], [x + cw, y, -1, 1], [x, y + ch, 1, -1], [x + cw, y + ch, -1, -1]]) {
+    ctx.moveTo(px + sx * len, py); ctx.lineTo(px, py); ctx.lineTo(px, py + sy * len);
+  }
+  ctx.stroke(); ctx.lineCap = 'butt';
 }
 
 // ---------- Curve editor ----------

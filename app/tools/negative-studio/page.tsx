@@ -1,5 +1,5 @@
 import { Suspense } from 'react';
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
 import { loadStudioData } from '@/lib/negative-studio/repo';
@@ -7,10 +7,12 @@ import { NegativeStudio } from './negative-studio';
 import './studio.css';
 
 export const metadata: Metadata = { title: 'Cyanotype Negative Studio' };
+// Edge to edge on notched phones (the layout pads itself), and the on-screen keyboard shrinks the layout rather than covering it.
+export const viewport: Viewport = { viewportFit: 'cover', interactiveWidget: 'resizes-content' };
 
 export default function NegativeStudioPage() {
   return (
-    <Suspense fallback={<div className="studio grid h-screen place-items-center text-sm text-muted-foreground">Loading Negative Studio…</div>}>
+    <Suspense fallback={<div className="studio grid h-dvh place-items-center text-sm text-muted-foreground">Loading Negative Studio…</div>}>
       <Studio />
     </Suspense>
   );

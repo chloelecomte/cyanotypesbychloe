@@ -1,9 +1,10 @@
 'use client';
 
-// The sidebar: the five steps from photo to printable negative.
+// The sidebar (or, on phones, the panel under the preview): the five steps from photo to printable negative.
 import { useId, useRef, useState } from 'react';
 import {
-  Crop as CropIcon, Download, FlipHorizontal2, ImagePlus, Printer, RotateCcw, RotateCw, Save, Sparkles, Trash2, Upload,
+  ChevronDown, ChevronUp, Crop as CropIcon, Download, FlipHorizontal2, ImagePlus, Printer, RotateCcw, RotateCw, Save, Sparkles, Spline,
+  SunMedium, Trash2, Upload,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
@@ -16,21 +17,70 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSepa
 import { buildNegative, download, negativeName, pngWithDpi, printDims, printInWindow } from '@/lib/negative-studio/output';
 import { DEFAULT_SETTINGS, type Settings } from '@/lib/negative-studio/types';
 import { cn } from '@/lib/utils';
-import { BusyButton, Field, HelpTip, NumberField, SliderRow, SubHeading, Tip, useBusy } from './controls';
+import { BusyButton, Field, HelpTip, NumberField, SliderRow, SubHeading, Tip, TOUCH, useBusy, useMedia } from './controls';
 import { CurveEditor } from './curve-editor';
 import { useStudio } from './use-studio';
 
-const STEPS = ['open', 'crop', 'bw', 'neg', 'print'];
+const STEPS = [
+  { value: 'open', title: 'Open a photo', short: 'Open', icon: ImagePlus, Body: OpenStep },
+  { value: 'crop', title: 'Crop & rotate', short: 'Crop', icon: CropIcon, Body: CropStep },
+  { value: 'bw', title: 'Black & white and tone', short: 'Tone', icon: SunMedium, Body: ToneStep },
+  { value: 'neg', title: 'Negative & curve', short: 'Curve', icon: Spline, Body: CurveStep },
+  { value: 'print', title: 'Print the negative', short: 'Print', icon: Printer, Body: PrintStep },
+];
 
 export function Steps() {
   return (
-    <Accordion type="multiple" defaultValue={STEPS}>
-      <Step value="open" n={1} title="Open a photo"><OpenStep /></Step>
-      <Step value="crop" n={2} title="Crop & rotate"><CropStep /></Step>
-      <Step value="bw" n={3} title="Black & white and tone"><ToneStep /></Step>
-      <Step value="neg" n={4} title="Negative & curve"><CurveStep /></Step>
-      <Step value="print" n={5} title="Print the negative"><PrintStep /></Step>
+    <Accordion type="multiple" defaultValue={STEPS.map(s => s.value)}>
+      {STEPS.map(({ value, title, Body }, i) => <Step key={value} value={value} n={i + 1} title={title}><Body /></Step>)}
     </Accordion>
+  );
+}
+
+/**
+ * Phones: one step at a time in a panel under the preview, picked from a bar at the bottom of the
+ * screen. Tapping the current step again folds the panel away to give the preview the room.
+ */
+export function MobileSteps() {
+  const { active } = useStudio();
+  const [current, setCurrent] = useState(active ? 'crop' : 'open'), [open, setOpen] = useState(true);
+  const step = STEPS.find(s => s.value === current)!, n = STEPS.indexOf(step) + 1;
+  // Move on to cropping when the first photo opens.
+  const [hadPhoto, setHadPhoto] = useState(!!active);
+  if (!!active !== hadPhoto) { setHadPhoto(!!active); if (active && current === 'open') setCurrent('crop'); }
+  return (
+    <section aria-label="Steps" className="flex min-h-0 flex-col border-t bg-card pb-[env(safe-area-inset-bottom)]">
+      {open && (
+        <div id="mobile-step" role="tabpanel" aria-label={step.title} className="h-[min(36dvh,22rem)] overflow-y-auto overscroll-contain px-4 pt-3 pb-4">
+          <h2 className="mb-2.5 flex items-center gap-2.5 font-medium">
+            <span className="grid size-5 place-items-center rounded-full bg-primary text-[11px] text-primary-foreground">{n}</span>
+            {step.title}
+          </h2>
+          <step.Body />
+        </div>
+      )}
+      <div role="tablist" aria-label="Steps" className="grid grid-cols-5 border-t">
+        {STEPS.map(({ value, short, title, icon: Icon }) => {
+          const on = value === current;
+          return (
+            <button
+              key={value} type="button" role="tab" aria-selected={on} aria-controls={open && on ? 'mobile-step' : undefined}
+              aria-label={on && open ? `${title} (tap to hide)` : title}
+              onClick={() => { if (on) setOpen(o => !o); else { setCurrent(value); setOpen(true); } }}
+              className={cn('flex flex-col items-center gap-0.5 pt-2 pb-1.5 text-[11px] text-muted-foreground', on && 'text-foreground')}
+            >
+              <span className={cn('relative grid h-7 w-12 place-items-center rounded-full', on && 'bg-primary/25 text-cyan-ink')}>
+                <Icon className="size-[18px]" />
+                {on && (open
+                  ? <ChevronDown className="absolute -top-1.5 -right-1 size-3.5 rounded-full bg-card" />
+                  : <ChevronUp className="absolute -top-1.5 -right-1 size-3.5 rounded-full bg-card" />)}
+              </span>
+              {short}
+            </button>
+          );
+        })}
+      </div>
+    </section>
   );
 }
 
@@ -66,6 +116,7 @@ export function usePhotoPicker() {
 function OpenStep() {
   const { active } = useStudio();
   const [picker, pick] = usePhotoPicker();
+  const touch = useMedia(TOUCH);
   return (
     <>
       <button
@@ -73,8 +124,8 @@ function OpenStep() {
         className="flex w-full flex-col items-center gap-1 rounded-lg border border-dashed border-input px-4 py-5 text-center text-muted-foreground transition-colors hover:border-primary hover:text-foreground"
       >
         <ImagePlus className="mb-1 size-6" />
-        <span className="text-sm">Click to choose photos</span>
-        <span className="text-xs">or drag them anywhere onto this window — each opens in its own tab</span>
+        <span className="text-sm">{touch ? 'Tap to choose photos' : 'Click to choose photos'}</span>
+        <span className="text-xs">{touch ? 'Each opens in its own tab' : 'or drag them anywhere onto this window — each opens in its own tab'}</span>
       </button>
       {picker}
       <Tip className="mt-2 break-all">
@@ -234,7 +285,7 @@ function CurveStep() {
         <Button size="sm" variant="outline" onClick={s.linearCurve} title="No correction: a plain inverted image">Linear</Button>
       </div>
       <CurveEditor />
-      <Tip className="mt-2">Click to add a point, drag to move, double-click (or drag off the box) to remove. The faint bars show where your photo&apos;s tones sit.</Tip>
+      <Tip className="mt-2">Tap to add a point and drag to move it. To remove one, select it and press <b>Remove point</b>, double-click it, or drag it off the box. The faint bars show where your photo&apos;s tones sit.</Tip>
 
       <SubHeading>My curves</SubHeading>
       <div className="flex gap-1.5">

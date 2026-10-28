@@ -13,11 +13,11 @@ import { useStudio } from './use-studio';
 export function StudioHeader({ onCalibrate, onHelp }: { onCalibrate: () => void; onHelp: () => void }) {
   const { user } = useStudio();
   return (
-    <header className="col-span-2 flex h-12 items-center gap-1 border-b bg-card px-3">
+    <header className="flex h-[calc(3rem+env(safe-area-inset-top))] items-center gap-1 border-b bg-card px-3 pt-[env(safe-area-inset-top)] md:col-span-2">
       {/* A full page load, so the studio's styles don't follow you to the public site. */}
       {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-      <a href="/" className="mr-auto text-[15px] font-semibold tracking-tight">
-        Cyanotype <span className="text-cyan-ink">Negative</span> Studio
+      <a href="/" className="mr-auto truncate text-[15px] font-semibold tracking-tight">
+        <span className="max-sm:hidden">Cyanotype </span><span className="text-cyan-ink">Negative</span> Studio
       </a>
       <SaveStatus />
       <IconButton label="Calibrate my process" onClick={onCalibrate}><Gauge className="size-[18px]" /></IconButton>

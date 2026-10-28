@@ -64,17 +64,17 @@ export function CalibrationDialog({ open, onOpenChange }: { open: boolean; onOpe
 
   return (
     <Dialog open={open} onOpenChange={o => { if (o) setTarget('new'); onOpenChange(o); }}>
-      <DialogContent className="flex max-h-[92vh] flex-col gap-0 p-0 sm:max-w-3xl">
-        <DialogHeader className="border-b py-4 pr-12 pl-6">
+      <DialogContent className="flex max-h-[92vh] flex-col gap-0 max-sm:h-dvh max-sm:max-h-none max-sm:max-w-none max-sm:rounded-none max-sm:border-0 max-sm:pt-[env(safe-area-inset-top)] max-sm:pb-[env(safe-area-inset-bottom)] p-0 max-sm:h-dvh max-sm:max-h-none max-sm:max-w-none max-sm:rounded-none max-sm:border-0 max-sm:pt-[env(safe-area-inset-top)] max-sm:pb-[env(safe-area-inset-bottom)] sm:max-w-3xl">
+        <DialogHeader className="border-b py-4 pr-12 pl-6 text-left max-sm:pl-4">
           <DialogTitle>Calibrate for your paper, chemistry and light</DialogTitle>
           <DialogDescription>
             The built-in &ldquo;Generic cyanotype&rdquo; profile is only an estimate. Cyanotype results vary a lot with paper, sensitizer, UV source, printer and film. A calibration measures <i>your</i> process once, so the curve and the preview match your real prints.
           </DialogDescription>
         </DialogHeader>
-        <div className="grid min-h-0 gap-6 overflow-y-auto px-6 py-5 text-[13px] leading-relaxed text-foreground/85">
+        <div className="grid min-h-0 gap-6 overflow-y-auto overscroll-contain px-6 py-5 max-sm:px-4 text-[13px] leading-relaxed text-foreground/85">
           <Section n={1} title="Print the calibration sheet">
             <p>One full page of film with a band for each exposure time. Every band has two 21-step tablets: a <b>linear</b> one (for calibrating) and one with your <b>current curve</b> (to check it — a good curve prints as even steps). It&apos;s already inverted and mirrored. Print it on transparency film at 100% scale, with exactly the settings you&apos;ll use for negatives.</p>
-            <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="mt-3 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
               <Field label="Exposure times (minutes)" htmlFor={ids.times}>
                 <Input id={ids.times} value={timesText} onChange={e => setTimesText(e.target.value)} aria-invalid={!times} />
               </Field>
@@ -143,15 +143,15 @@ export function CalibrationDialog({ open, onOpenChange }: { open: boolean; onOpe
               </Select>
             </Field>
             {target === 'new' && (
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <Field label="Profile name" htmlFor={ids.name} className="col-span-2"><Input id={ids.name} placeholder="e.g. Arches Platine · sunlight" {...field('name')} /></Field>
+              <div className="mt-3 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+                <Field label="Profile name" htmlFor={ids.name} className="col-span-2 max-sm:col-span-1"><Input id={ids.name} placeholder="e.g. Arches Platine · sunlight" {...field('name')} /></Field>
                 <Field label="Paper" htmlFor={ids.paper}><Input id={ids.paper} placeholder="e.g. Arches Platine" {...field('paper')} /></Field>
                 <Field label="Light source" htmlFor={ids.light}><Input id={ids.light} placeholder="e.g. sunlight, UV lightbox 365 nm" {...field('lightSource')} /></Field>
                 <Field label="Sensitizer" htmlFor={ids.sens}><Input id={ids.sens} placeholder="e.g. classic 2-part" {...field('sensitizer')} /></Field>
                 <Field label="Printer & film" htmlFor={ids.printer}><Input id={ids.printer} placeholder="e.g. Epson P700 · Pictorico" {...field('printerFilm')} /></Field>
               </div>
             )}
-            <div className="mt-3 grid grid-cols-2 gap-3">
+            <div className="mt-3 grid grid-cols-2 gap-3 max-sm:grid-cols-1">
               <Field label="Exposure of the band you read (minutes)" htmlFor={ids.exposure}><Input id={ids.exposure} type="number" min={0} step={0.5} {...field('exposure')} /></Field>
               <Field label="Conditions" htmlFor={ids.cond}><Input id={ids.cond} placeholder="e.g. clear sky, noon, July" {...field('conditions')} /></Field>
             </div>
@@ -195,7 +195,7 @@ function ScanReader({ onReadings }: { onReadings: (r: Readings) => void }) {
     setClicks(next);
     if (next.length === 2) onReadings(orderReadings(sampleScan(scan, next, lstar)));
   }
-  const msg = ['Click the centre of patch 1 (lightest).', 'Now click the centre of patch 21 (darkest).', 'Done — click again to start over.'][Math.min(2, clicks.length)];
+  const msg = ['Tap or click the centre of patch 1 (lightest).', 'Now the centre of patch 21 (darkest).', 'Done — tap or click again to start over.'][Math.min(2, clicks.length)];
 
   return (
     <div className="pt-2">

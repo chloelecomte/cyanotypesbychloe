@@ -8,9 +8,10 @@ import { createRepo } from '@/lib/negative-studio/repo';
 import type { StudioData, StudioUser } from '@/lib/negative-studio/types';
 import { CalibrationDialog } from './calibration-dialog';
 import { ConfirmProvider } from './confirm';
+import { MOBILE, useMedia } from './controls';
 import { HelpDialog } from './help-dialog';
 import { StudioHeader } from './studio-header';
-import { Steps } from './steps';
+import { MobileSteps, Steps } from './steps';
 import { StudioProvider, useStudio } from './use-studio';
 import { Workspace } from './workspace';
 
@@ -22,6 +23,7 @@ function lazy<T extends object>(make: () => T): T {
 
 export function NegativeStudio({ user, data }: { user: StudioUser; data: StudioData }) {
   const [repo] = useState(() => lazy(() => createRepo(createClient(), user.id)));
+  const mobile = useMedia(MOBILE);
   return (
     <TooltipProvider delayDuration={300}>
       <ConfirmProvider>
@@ -29,7 +31,7 @@ export function NegativeStudio({ user, data }: { user: StudioUser; data: StudioD
           <Studio />
         </StudioProvider>
       </ConfirmProvider>
-      <Toaster position="bottom-right" />
+      <Toaster position={mobile ? 'top-center' : 'bottom-right'} />
     </TooltipProvider>
   );
 }
@@ -38,13 +40,20 @@ function Studio() {
   const [calOpen, setCalOpen] = useState(false), [helpOpen, setHelpOpen] = useState(false);
   useDropToOpen(calOpen);
   useUndoShortcuts();
+  const mobile = useMedia(MOBILE);
+  // Phones stack the preview above a panel with one step at a time; wider screens keep the sidebar.
   return (
-    <div className="studio grid h-screen grid-cols-[360px_1fr] grid-rows-[48px_1fr] bg-background text-sm text-foreground">
+    <div className="studio grid h-dvh grid-rows-[auto_minmax(0,1fr)_auto] bg-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] text-sm text-foreground md:grid-cols-[360px_1fr] md:grid-rows-[auto_minmax(0,1fr)]">
       <StudioHeader onCalibrate={() => setCalOpen(true)} onHelp={() => setHelpOpen(true)} />
-      <aside className="overflow-y-auto border-r bg-card" aria-label="Steps">
-        <Steps />
-      </aside>
-      <Workspace />
+      {mobile ? <>
+        <Workspace />
+        <MobileSteps />
+      </> : <>
+        <aside className="overflow-y-auto border-r bg-card" aria-label="Steps">
+          <Steps />
+        </aside>
+        <Workspace />
+      </>}
       <CalibrationDialog open={calOpen} onOpenChange={setCalOpen} />
       <HelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </div>

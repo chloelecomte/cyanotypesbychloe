@@ -3,11 +3,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 export function HelpDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[92vh] flex-col gap-0 p-0 sm:max-w-2xl">
-        <DialogHeader className="border-b py-4 pr-12 pl-6">
+      <DialogContent className="flex max-h-[92vh] flex-col gap-0 max-sm:h-dvh max-sm:max-h-none max-sm:max-w-none max-sm:rounded-none max-sm:border-0 max-sm:pt-[env(safe-area-inset-top)] max-sm:pb-[env(safe-area-inset-bottom)] p-0 max-sm:h-dvh max-sm:max-h-none max-sm:max-w-none max-sm:rounded-none max-sm:border-0 max-sm:pt-[env(safe-area-inset-top)] max-sm:pb-[env(safe-area-inset-bottom)] sm:max-w-2xl">
+        <DialogHeader className="border-b py-4 pr-12 pl-6 text-left max-sm:pl-4">
           <DialogTitle>How digital negatives for cyanotype work</DialogTitle>
         </DialogHeader>
-        <div className="grid min-h-0 gap-1 overflow-y-auto px-6 pt-2 pb-6 text-[13px] leading-relaxed text-foreground/85 [&_b]:text-foreground [&_h3]:mt-4 [&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:text-foreground">
+        <div className="grid min-h-0 gap-1 overflow-y-auto overscroll-contain px-6 max-sm:px-4 pt-2 pb-6 text-[13px] leading-relaxed text-foreground/85 [&_b]:text-foreground [&_h3]:mt-4 [&_h3]:mb-1 [&_h3]:text-sm [&_h3]:font-semibold [&_h3]:text-foreground">
           <h3>The short version</h3>
           <ol className="list-decimal space-y-1 pl-5">
             <li><b>Edit</b> your photo as a black &amp; white positive that looks the way you want the print to look.</li>
