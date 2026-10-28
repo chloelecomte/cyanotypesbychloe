@@ -109,13 +109,17 @@ export function CalibrationDialog({ open, onOpenChange }: { open: boolean; onOpe
             <ol className="list-decimal space-y-1 pl-5">
               <li>Lay the film on the sensitized paper and expose the whole sheet. Each time on the list comes up, slide an opaque card down to the next marked line (the ticks in the margins), covering one more band. The top band gets the shortest time, the bottom band the longest.</li>
               <li>Develop and dry fully — cyanotype darkens as it dries.</li>
-              <li>In the <b>linear</b> rows, pick the <b>shortest</b> time at which the last few patches (19–21, clearest film) have all merged into the same deepest blue, while patches 1–2 stay paper white. This &ldquo;standard printing time&rdquo; idea is how Christina Z. Anderson approaches it in her cyanotype and digital-negative books.</li>
+              <li>In the <b>linear</b> rows, compare the last few patches (19–21, clearest film) from band to band. They get darker with time, then stop. Pick the <b>shortest</b> time at which they&apos;re as dark as in the longer bands, while patches 1–2 stay paper white. A shorter band whose last patches have merged into a <i>lighter</i> blue is underexposed. Longer bands that are no darker only cost you highlights. This &ldquo;standard printing time&rdquo; idea is how Christina Z. Anderson approaches it in her cyanotype and digital-negative books.</li>
               <li>From now on always use that time, paper and chemistry.</li>
             </ol>
+            <p className="mt-2">Don&apos;t worry if only a handful of linear patches differ before they all turn full blue. That&apos;s normal before calibrating, and it&apos;s what the curve corrects. Don&apos;t shorten the exposure to stretch the row out.</p>
+            <p className="mt-2 text-xs text-muted-foreground">
+              <b className="text-foreground">Whites tinted blue or lavender?</b> If patches 1–2 and the margins are tinted by about the same amount in every band, the cause is probably chemistry or paper, not exposure. Common causes are paper fogged by light while coating or drying, old sensitizer (it should be yellow-green), a short wash, or alkaline paper or water. An acidic first bath (a splash of vinegar or citric acid) helps. To check, coat a strip and develop one piece without exposing it. If that piece is tinted, it isn&apos;t your film.
+            </p>
           </Section>
 
           <Section n={3} title="Read your print">
-            <p>Scan or photograph the dry print (even light, no colour correction). Then click patch 1 and patch 21 of the <b>linear</b> row in the band you picked. Patch 1 is the lightest, patch 21 the darkest.</p>
+            <p>Scan the dry print on a flatbed with colour correction off (a photo works only in very even light). Then click patch 1 and patch 21 of the <b>linear</b> row in the band you picked. Patch 1 is the lightest, patch 21 the darkest.</p>
             <Tabs defaultValue="scan" className="mt-3">
               <TabsList>
                 <TabsTrigger value="scan">From a scan</TabsTrigger>
@@ -155,6 +159,7 @@ export function CalibrationDialog({ open, onOpenChange }: { open: boolean; onOpe
               <Button onClick={save} disabled={!readings || saving}>Save &amp; use</Button>
               <Button variant="ghost" className="ml-auto text-muted-foreground hover:text-destructive" onClick={s.deleteProfile}><Trash2 />Delete selected profile</Button>
             </div>
+            <p className="mt-2 text-xs text-muted-foreground">To check it, print a new sheet with times around your standard time (e.g. 9, 10, 11). The <b>current curve</b> rows should now step evenly from white to deep blue.</p>
           </Section>
         </div>
       </DialogContent>
@@ -232,7 +237,7 @@ function ReadingsSummary({ readings }: { readings: Readings | null }) {
   return (
     <p className="mt-2 text-xs text-muted-foreground">
       Your print shows <b className="text-foreground">{r.distinct}</b> distinct tones out of 21. Tones start separating at patch {r.first} and reach full blue at patch {r.last}.
-      {r.overexposed && <span className="text-warning"> Full blue is reached very early — the print may be overexposed.</span>}
+      {r.shortRange && <span className="text-warning"> That&apos;s a short tonal range. If patches 1–2 are paper white and a shorter time didn&apos;t reach the same deep blue, it isn&apos;t overexposure: your film only holds back UV under heavy ink, and the curve will spread the tones out. If patches 1–2 are tinted, try a shorter time.</span>}
       {r.underexposed && <span className="text-warning"> Many light patches stay white — the print may be underexposed.</span>}
     </p>
   );
