@@ -12,7 +12,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { buildNegative, download, negativeName, pngWithDpi, printDims, printInWindow } from '@/lib/negative-studio/output';
 import { DEFAULT_SETTINGS, type Settings } from '@/lib/negative-studio/types';
 import { cn } from '@/lib/utils';
@@ -84,9 +84,14 @@ function OpenStep() {
   );
 }
 
-const ASPECTS: [string, string][] = [
-  ['free', 'Free'], ['orig', 'Original'], ['1', 'Square 1:1'], ['0.8', '4:5 (8×10)'], ['1.25', '5:4 (10×8)'],
-  ['0.7143', '5:7'], ['1.4', '7:5'], ['0.6667', '2:3'], ['1.5', '3:2'],
+// Values are width ÷ height. Each portrait ratio's landscape twin is listed as its reciprocal.
+const PORTRAIT: [string, string][] = [
+  ['0.8', '4:5 (8×10)'], ['0.75', '3:4 (6×8, 9×12, 12×16)'], ['0.7857', '11:14'], ['0.7333', '11:15'],
+  ['0.7143', '5:7'], ['0.7071', 'A sizes (A4, A3…)'], ['0.6667', '2:3 (4×6, 8×12)'], ['0.5625', '9:16'],
+];
+const LANDSCAPE: [string, string][] = [
+  ['1.25', '5:4 (10×8)'], ['1.3333', '4:3 (8×6, 12×9, 16×12)'], ['1.2727', '14:11'], ['1.3636', '15:11'],
+  ['1.4', '7:5'], ['1.4142', 'A sizes, landscape'], ['1.5', '3:2 (6×4, 12×8)'], ['1.7778', '16:9'],
 ];
 
 function CropStep() {
@@ -103,7 +108,18 @@ function CropStep() {
         <Field label="Aspect ratio" htmlFor={id}>
           <Select value={settings.aspect} onValueChange={setAspect}>
             <SelectTrigger id={id} className="w-full"><SelectValue /></SelectTrigger>
-            <SelectContent>{ASPECTS.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}</SelectContent>
+            <SelectContent>
+              <SelectItem value="free">Free</SelectItem>
+              <SelectItem value="orig">Original</SelectItem>
+              <SelectItem value="1">Square 1:1</SelectItem>
+              {([['Portrait', PORTRAIT], ['Landscape', LANDSCAPE]] as const).map(([label, items]) => (
+                <SelectGroup key={label}>
+                  <SelectSeparator />
+                  <SelectLabel>{label}</SelectLabel>
+                  {items.map(([v, l]) => <SelectItem key={v} value={v}>{l}</SelectItem>)}
+                </SelectGroup>
+              ))}
+            </SelectContent>
           </Select>
         </Field>
         <div className="flex gap-1.5">
