@@ -128,7 +128,8 @@ export function renderView(c: HTMLCanvasElement, p: Preview, gidx: Uint16Array, 
     ctx.fillText('B&W', pad * 2, pad + w / 80); ctx.fillText('Cyanotype', w - pad - w / 7 + pad, pad + w / 80);
   }
 }
-export function renderCrop(c: HTMLCanvasElement, oriented: HTMLCanvasElement, crop: Crop | null) {
+/** Draws the whole photo with the crop marked on it; px is screen pixels per canvas pixel, to size the handles. */
+export function renderCrop(c: HTMLCanvasElement, oriented: HTMLCanvasElement, crop: Crop | null, px: number) {
   const w = oriented.width, h = oriented.height, ctx = c.getContext('2d')!;
   sizeCanvas(c, w, h);
   ctx.drawImage(oriented, 0, 0);
@@ -139,6 +140,18 @@ export function renderCrop(c: HTMLCanvasElement, oriented: HTMLCanvasElement, cr
   ctx.strokeStyle = '#fff'; ctx.lineWidth = Math.max(1, w / 600); ctx.strokeRect(x, y, cw, ch);
   ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.beginPath();
   for (let k = 1; k < 3; k++) { ctx.moveTo(x + cw * k / 3, y); ctx.lineTo(x + cw * k / 3, y + ch); ctx.moveTo(x, y + ch * k / 3); ctx.lineTo(x + cw, y + ch * k / 3); }
+  ctx.stroke();
+  // Corner brackets and edge bars, drawn just inside the crop so they show at the photo's edge too.
+  const t = 3 / (px || 1), len = Math.min(20 / (px || 1), cw / 3, ch / 3);
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = t; ctx.lineCap = 'square'; ctx.beginPath();
+  for (const [ex, sx] of [[x + t / 2, 1], [x + cw - t / 2, -1]]) for (const [ey, sy] of [[y + t / 2, 1], [y + ch - t / 2, -1]]) {
+    ctx.moveTo(ex + sx * len, ey); ctx.lineTo(ex, ey); ctx.lineTo(ex, ey + sy * len);
+  }
+  const mx = x + cw / 2, my = y + ch / 2;
+  ctx.moveTo(mx - len / 2, y + t / 2); ctx.lineTo(mx + len / 2, y + t / 2);
+  ctx.moveTo(mx - len / 2, y + ch - t / 2); ctx.lineTo(mx + len / 2, y + ch - t / 2);
+  ctx.moveTo(x + t / 2, my - len / 2); ctx.lineTo(x + t / 2, my + len / 2);
+  ctx.moveTo(x + cw - t / 2, my - len / 2); ctx.lineTo(x + cw - t / 2, my + len / 2);
   ctx.stroke();
 }
 
