@@ -41,6 +41,9 @@ export type Profile = {
   sensitizer: string | null;
   exposureSeconds: number | null;
   printerFilm: string | null;
+  /** Water, vinegar, citric acid… */
+  rinse: string | null;
+  notes: string | null;
   /** The active calibration, if the profile has one. */
   calibration: Calibration | null;
   calibrationCount: number;

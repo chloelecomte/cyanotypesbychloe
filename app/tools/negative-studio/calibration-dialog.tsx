@@ -29,11 +29,11 @@ export function CalibrationDialog({ open, onOpenChange }: { open: boolean; onOpe
   const [timesText, setTimesText] = useState('5, 10, 15, 20'), [size, setSize] = useState<SheetSize>('letter');
   const [readings, setReadings] = useState<Readings | null>(null);
   const [target, setTarget] = useState('new');
-  const [fields, setFields] = useState({ name: '', paper: '', lightSource: '', sensitizer: '', printerFilm: '', exposure: '', conditions: '' });
+  const [fields, setFields] = useState({ name: '', paper: '', lightSource: '', sensitizer: '', printerFilm: '', rinse: '', notes: '', exposure: '', conditions: '' });
   const [saving, setSaving] = useState(false);
   const [sheetBusy, runSheet] = useBusy(), [printBusy, runPrint] = useBusy();
-  const ids = { times: useId(), size: useId(), target: useId(), name: useId(), paper: useId(), light: useId(), sens: useId(), printer: useId(), exposure: useId(), cond: useId() };
-  const field = (k: keyof typeof fields) => ({ value: fields[k], onChange: (e: React.ChangeEvent<HTMLInputElement>) => setFields(f => ({ ...f, [k]: e.target.value })) });
+  const ids = { times: useId(), size: useId(), target: useId(), name: useId(), paper: useId(), light: useId(), sens: useId(), printer: useId(), rinse: useId(), notes: useId(), exposure: useId(), cond: useId() };
+  const field = (k: keyof typeof fields) => ({ value: fields[k], onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setFields(f => ({ ...f, [k]: e.target.value })) });
   const text = (v: string) => v.trim() || null;
 
   const times = parseSheetTimes(timesText);
@@ -54,7 +54,7 @@ export function CalibrationDialog({ open, onOpenChange }: { open: boolean; onOpe
     setSaving(true);
     const ok = await s.saveCalibration(
       target === 'new'
-        ? { kind: 'new', name: text(fields.name), paper: text(fields.paper), lightSource: text(fields.lightSource), sensitizer: text(fields.sensitizer), printerFilm: text(fields.printerFilm) }
+        ? { kind: 'new', name: text(fields.name), paper: text(fields.paper), lightSource: text(fields.lightSource), sensitizer: text(fields.sensitizer), printerFilm: text(fields.printerFilm), rinse: text(fields.rinse), notes: text(fields.notes) }
         : { kind: 'retest', profileId: target },
       readings, fields.exposure ? parseFloat(fields.exposure) : null, text(fields.conditions),
     );
@@ -149,6 +149,8 @@ export function CalibrationDialog({ open, onOpenChange }: { open: boolean; onOpe
                 <Field label="Light source" htmlFor={ids.light}><Input id={ids.light} placeholder="e.g. sunlight, UV lightbox 365 nm" {...field('lightSource')} /></Field>
                 <Field label="Sensitizer" htmlFor={ids.sens}><Input id={ids.sens} placeholder="e.g. classic 2-part" {...field('sensitizer')} /></Field>
                 <Field label="Printer & film" htmlFor={ids.printer}><Input id={ids.printer} placeholder="e.g. Epson P700 · Pictorico" {...field('printerFilm')} /></Field>
+                <Field label="Rinse" htmlFor={ids.rinse} className="col-span-2"><Input id={ids.rinse} placeholder="e.g. water only, 5 min · vinegar first bath, then water · citric acid" {...field('rinse')} /></Field>
+                <Field label="Notes" htmlFor={ids.notes} className="col-span-2"><Textarea id={ids.notes} placeholder="Anything else about developing: coating, drying, toning, what you'd change next time…" {...field('notes')} /></Field>
               </div>
             )}
             <div className="mt-3 grid grid-cols-2 gap-3">

@@ -10,7 +10,7 @@ type ProfileRow = Database['public']['Tables']['process_profiles']['Row'];
 type CalibrationRow = Database['public']['Tables']['calibrations']['Row'];
 type CurveRow = Database['public']['Tables']['curves']['Row'];
 
-export type ProfileFields = Pick<Profile, 'name' | 'paper' | 'lightSource' | 'sensitizer' | 'exposureSeconds' | 'printerFilm'>;
+export type ProfileFields = Pick<Profile, 'name' | 'paper' | 'lightSource' | 'sensitizer' | 'exposureSeconds' | 'printerFilm' | 'rinse' | 'notes'>;
 export type NewCalibration = Omit<Calibration, 'id' | 'measuredAt'>;
 
 const toCalibration = (r: CalibrationRow): Calibration => ({
@@ -33,6 +33,8 @@ const toProfile = (r: ProfileRow, cals: CalibrationRow[]): Profile => {
     sensitizer: r.sensitizer,
     exposureSeconds: r.exposure_seconds,
     printerFilm: r.printer_film,
+    rinse: r.rinse,
+    notes: r.notes,
     calibration: active && toCalibration(active),
     calibrationCount: cals.length,
   };
@@ -85,6 +87,8 @@ export function createRepo(db: DB, userId: string) {
         sensitizer: fields.sensitizer,
         exposure_seconds: fields.exposureSeconds,
         printer_film: fields.printerFilm,
+        rinse: fields.rinse,
+        notes: fields.notes,
       }).select().single());
       const c = check(await db.from('calibrations').insert(calibrationInsert(p.id, cal)).select().single());
       return toProfile(p, [c]);

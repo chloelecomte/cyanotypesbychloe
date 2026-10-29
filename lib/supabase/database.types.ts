@@ -16,6 +16,7 @@ export type Database = {
           sensitizer: string | null;
           exposure_seconds: number | null;
           printer_film: string | null;
+          rinse: string | null;
           notes: string | null;
           created_at: string;
           updated_at: string;
@@ -29,6 +30,7 @@ export type Database = {
           sensitizer?: string | null;
           exposure_seconds?: number | null;
           printer_film?: string | null;
+          rinse?: string | null;
           notes?: string | null;
           created_at?: string;
           updated_at?: string;

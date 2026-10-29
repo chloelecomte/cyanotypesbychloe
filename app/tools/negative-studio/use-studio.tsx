@@ -50,7 +50,7 @@ type State = {
   nextId: number;
 };
 
-export type CalibrationTarget = { kind: 'new'; name: string | null; paper: string | null; lightSource: string | null; sensitizer: string | null; printerFilm: string | null } | { kind: 'retest'; profileId: string };
+export type CalibrationTarget = { kind: 'new'; name: string | null; paper: string | null; lightSource: string | null; sensitizer: string | null; printerFilm: string | null; rinse: string | null; notes: string | null } | { kind: 'retest'; profileId: string };
 
 const calibrated = (profiles: Profile[], id: string) => id === 'model' ? null : profiles.find(p => p.id === id && p.calibration) ?? null;
 const refit = (s: Settings, profiles: Profile[]): Settings =>
@@ -359,7 +359,7 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
     if (target.kind === 'new') {
       updated = await cloud('save the profile', () => repo.createProfile({
         name: target.name || `Calibration ${new Date().toLocaleDateString()}`, paper: target.paper, lightSource: target.lightSource,
-        sensitizer: target.sensitizer, printerFilm: target.printerFilm, exposureSeconds,
+        sensitizer: target.sensitizer, printerFilm: target.printerFilm, rinse: target.rinse, notes: target.notes, exposureSeconds,
       }, cal));
     } else {
       const p = profiles.find(p => p.id === target.profileId)!;
@@ -416,7 +416,7 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
       const ok = await cloud('import your saved data', async () => {
         for (const [i, c] of cals.entries()) {
           const p = await repo.createProfile(
-            { name: String(c.name || `Calibration ${i + 1}`).slice(0, 200), paper: null, lightSource: null, sensitizer: null, printerFilm: null, exposureSeconds: null },
+            { name: String(c.name || `Calibration ${i + 1}`).slice(0, 200), paper: null, lightSource: null, sensitizer: null, printerFilm: null, rinse: null, notes: null, exposureSeconds: null },
             { darkness: c.ds, colors: Array.isArray(c.colors) && c.colors.length === 21 ? c.colors : null, readingsLstar: null, exposureSeconds: null, conditions: null },
           );
           newProfiles.push(p); ids['cal:' + i] = p.id;
