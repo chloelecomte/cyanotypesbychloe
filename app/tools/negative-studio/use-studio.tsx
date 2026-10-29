@@ -276,7 +276,7 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
     edit('rotate', st => {
       const t = st.tabs.find(t => t.id === st.activeId); if (!t) return {};
       const rot = (t.rot + quarterTurns + 4) % 4, crop = fitAspect(null, st.settings.aspect, t.src, rot);
-      return { tabs: st.tabs.map(x => x === t ? { ...t, rot, crop } : x), cropDraft: st.cropDraft === undefined ? undefined : crop };
+      return { tabs: st.tabs.map(x => x === t ? { ...t, rot, crop } : x), cropDraft: st.cropDraft === undefined ? undefined : crop ?? fullCrop({ ...t, rot }, st.settings.aspect) };
     });
   }
   function flipPhoto() {
@@ -294,7 +294,12 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
       return { settings, tabs: st.tabs.map(x => x === t ? { ...t, crop: fitAspect(t.crop, aspect, t.src, t.rot) } : x) };
     });
   }
-  const startCrop = () => set(st => ({ cropDraft: st.tabs.find(t => t.id === st.activeId)?.crop ?? null }));
+  /** The largest crop the aspect ratio allows: where a new crop starts, so it can be shrunk from there. */
+  const fullCrop = (t: Tab, aspect: string): Crop => fitAspect(null, aspect, t.src, t.rot) ?? { x: 0, y: 0, w: 1, h: 1 };
+  const startCrop = () => set(st => {
+    const t = st.tabs.find(t => t.id === st.activeId);
+    return { cropDraft: t ? t.crop ?? fullCrop(t, st.settings.aspect) : null };
+  });
   function finishCrop() {
     edit('crop', st => st.cropDraft === undefined ? {} : {
       tabs: st.tabs.map(t => t.id === st.activeId ? { ...t, crop: st.cropDraft ?? null } : t), cropDraft: undefined,
@@ -303,8 +308,9 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
   function resetCrop() {
     edit('reset-crop', st => {
       const t = st.tabs.find(t => t.id === st.activeId); if (!t) return {};
+      if (st.cropDraft !== undefined) return { cropDraft: fullCrop(t, st.settings.aspect) };
       const c = fitAspect(null, st.settings.aspect, t.src, t.rot);
-      return st.cropDraft !== undefined ? { cropDraft: c } : { tabs: st.tabs.map(x => x === t ? { ...t, crop: c } : x) };
+      return { tabs: st.tabs.map(x => x === t ? { ...t, crop: c } : x) };
     });
   }
   const setCropDraft = (c: Crop | null) => set(() => ({ cropDraft: c }));
