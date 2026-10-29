@@ -226,7 +226,8 @@ function Stage() {
 
   return (
     <div
-      ref={stage} className="relative grid min-h-0 touch-none place-items-center overflow-hidden bg-[repeating-conic-gradient(#1c1e22_0_25%,#191b1e_0_50%)] bg-[length:24px_24px]"
+      // While cropping, the top padding keeps the photo clear of the crop bar, so its top edge and corners stay reachable.
+      ref={stage} className={cn('relative grid min-h-0 touch-none place-items-center overflow-hidden bg-[repeating-conic-gradient(#1c1e22_0_25%,#191b1e_0_50%)] bg-[length:24px_24px]', cropping && 'pt-14')}
       style={cropping ? { cursor } : undefined}
       onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}
     >
