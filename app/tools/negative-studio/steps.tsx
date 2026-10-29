@@ -182,7 +182,7 @@ function CurveStep() {
   const meta = (() => {
     if (!profile?.calibration) return '';
     const mins = profile.calibration.exposureSeconds ?? profile.exposureSeconds;
-    return [profile.paper, profile.lightSource, profile.sensitizer, mins != null ? `${+(mins / 60).toFixed(1)} min` : null,
+    return [profile.paper, profile.lightSource, profile.sensitizer, profile.rinse && `rinse: ${profile.rinse}`, mins != null ? `${+(mins / 60).toFixed(1)} min` : null,
       `calibrated ${new Date(profile.calibration.measuredAt).toLocaleDateString()}`,
       profile.calibrationCount > 1 ? `${profile.calibrationCount} calibrations` : null].filter(Boolean).join(' · ');
   })();
@@ -209,6 +209,7 @@ function CurveStep() {
         </Select>
       </Field>
       {meta && <Tip className="mt-1.5">{meta}</Tip>}
+      {profile?.calibration && profile.notes && <Tip className="mt-1 whitespace-pre-line">{profile.notes}</Tip>}
       {settings.profile === 'model' && (
         <div className="mt-3">
           <div className="flex items-center gap-1">
