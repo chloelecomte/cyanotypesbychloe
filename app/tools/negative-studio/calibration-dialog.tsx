@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState } from 'react';
-import { Download, FileImage, Printer, Trash2 } from 'lucide-react';
+import { Download, FileImage, Pencil, Printer, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -18,6 +18,8 @@ import {
   sheetSchedule, tabletCanvas, type SheetSize,
 } from '@/lib/negative-studio/output';
 import { isLinear, LINEAR } from '@/lib/negative-studio/pipeline';
+import type { Profile } from '@/lib/negative-studio/types';
+import { cn } from '@/lib/utils';
 import { BusyButton, Field, useBusy } from './controls';
 import { useStudio } from './use-studio';
 
@@ -29,12 +31,13 @@ export function CalibrationDialog({ open, onOpenChange }: { open: boolean; onOpe
   const [timesText, setTimesText] = useState('5, 10, 15, 20'), [size, setSize] = useState<SheetSize>('letter');
   const [readings, setReadings] = useState<Readings | null>(null);
   const [target, setTarget] = useState('new');
-  const [fields, setFields] = useState({ name: '', paper: '', lightSource: '', sensitizer: '', printerFilm: '', rinse: '', notes: '', exposure: '', conditions: '' });
+  const [details, setDetails] = useState(NO_DETAILS);
+  const [fields, setFields] = useState({ exposure: '', conditions: '' });
+  const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sheetBusy, runSheet] = useBusy(), [printBusy, runPrint] = useBusy();
-  const ids = { times: useId(), size: useId(), target: useId(), name: useId(), paper: useId(), light: useId(), sens: useId(), printer: useId(), rinse: useId(), notes: useId(), exposure: useId(), cond: useId() };
-  const field = (k: keyof typeof fields) => ({ value: fields[k], onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setFields(f => ({ ...f, [k]: e.target.value })) });
-  const text = (v: string) => v.trim() || null;
+  const ids = { times: useId(), size: useId(), target: useId(), exposure: useId(), cond: useId() };
+  const field = (k: keyof typeof fields) => ({ value: fields[k], onChange: (e: React.ChangeEvent<HTMLInputElement>) => setFields(f => ({ ...f, [k]: e.target.value })) });
 
   const times = parseSheetTimes(timesText);
   const sheet = () => sheetCanvas(times!, size, curve, isLinear(settings.curve || LINEAR), profile?.name ?? 'Generic cyanotype');
@@ -54,9 +57,9 @@ export function CalibrationDialog({ open, onOpenChange }: { open: boolean; onOpe
     setSaving(true);
     const ok = await s.saveCalibration(
       target === 'new'
-        ? { kind: 'new', name: text(fields.name), paper: text(fields.paper), lightSource: text(fields.lightSource), sensitizer: text(fields.sensitizer), printerFilm: text(fields.printerFilm), rinse: text(fields.rinse), notes: text(fields.notes) }
+        ? { kind: 'new', ...detailsOut(details) }
         : { kind: 'retest', profileId: target },
-      readings, fields.exposure ? parseFloat(fields.exposure) : null, text(fields.conditions),
+      readings, fields.exposure ? parseFloat(fields.exposure) : null, fields.conditions.trim() || null,
     );
     setSaving(false);
     if (ok) { onOpenChange(false); toast.success('Calibration saved and in use'); }
@@ -142,27 +145,118 @@ export function CalibrationDialog({ open, onOpenChange }: { open: boolean; onOpe
                 </SelectContent>
               </Select>
             </Field>
-            {target === 'new' && (
-              <div className="mt-3 grid grid-cols-2 gap-3">
-                <Field label="Profile name" htmlFor={ids.name} className="col-span-2"><Input id={ids.name} placeholder="e.g. Arches Platine · sunlight" {...field('name')} /></Field>
-                <Field label="Paper" htmlFor={ids.paper}><Input id={ids.paper} placeholder="e.g. Arches Platine" {...field('paper')} /></Field>
-                <Field label="Light source" htmlFor={ids.light}><Input id={ids.light} placeholder="e.g. sunlight, UV lightbox 365 nm" {...field('lightSource')} /></Field>
-                <Field label="Sensitizer" htmlFor={ids.sens}><Input id={ids.sens} placeholder="e.g. classic 2-part" {...field('sensitizer')} /></Field>
-                <Field label="Printer & film" htmlFor={ids.printer}><Input id={ids.printer} placeholder="e.g. Epson P700 · Pictorico" {...field('printerFilm')} /></Field>
-                <Field label="Rinse" htmlFor={ids.rinse} className="col-span-2"><Input id={ids.rinse} placeholder="e.g. water only, 5 min · vinegar first bath, then water · citric acid" {...field('rinse')} /></Field>
-                <Field label="Notes" htmlFor={ids.notes} className="col-span-2"><Textarea id={ids.notes} placeholder="Anything else about developing: coating, drying, toning, what you'd change next time…" {...field('notes')} /></Field>
-              </div>
-            )}
+            {target === 'new' && <ProfileDetails value={details} onChange={setDetails} className="mt-3" />}
             <div className="mt-3 grid grid-cols-2 gap-3">
               <Field label="Exposure of the band you read (minutes)" htmlFor={ids.exposure}><Input id={ids.exposure} type="number" min={0} step={0.5} {...field('exposure')} /></Field>
               <Field label="Conditions" htmlFor={ids.cond}><Input id={ids.cond} placeholder="e.g. clear sky, noon, July" {...field('conditions')} /></Field>
             </div>
             <div className="mt-4 flex items-center gap-2">
               <Button onClick={save} disabled={!readings || saving}>Save &amp; use</Button>
-              <Button variant="ghost" className="ml-auto text-muted-foreground hover:text-destructive" onClick={s.deleteProfile}><Trash2 />Delete selected profile</Button>
+              {profile && <Button variant="ghost" className="ml-auto text-muted-foreground" onClick={() => setEditing(true)}><Pencil />Edit selected profile</Button>}
+              <Button variant="ghost" className={cn('text-muted-foreground hover:text-destructive', !profile && 'ml-auto')} onClick={s.deleteProfile}><Trash2 />Delete selected profile</Button>
             </div>
             <p className="mt-2 text-xs text-muted-foreground">To check it, print a new sheet with times around your standard time (e.g. 9, 10, 11). The <b>current curve</b> rows should now step evenly from white to deep blue.</p>
           </Section>
+        </div>
+        {profile && <EditProfileDialog profile={profile} open={editing} onOpenChange={setEditing} />}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+type Details = { name: string; paper: string; lightSource: string; sensitizer: string; printerFilm: string; rinse: string; notes: string };
+const NO_DETAILS: Details = { name: '', paper: '', lightSource: '', sensitizer: '', printerFilm: '', rinse: '', notes: '' };
+const detailsIn = (p: Profile): Details => Object.fromEntries(Object.keys(NO_DETAILS).map(k => [k, p[k as keyof Details] ?? ''])) as Details;
+const detailsOut = (d: Details) => Object.fromEntries(Object.entries(d).map(([k, v]) => [k, v.trim() || null])) as { [K in keyof Details]: string | null };
+const minutes = (seconds: number | null) => seconds != null ? String(+(seconds / 60).toFixed(2)) : '';
+
+/** Name, paper, chemistry and the rest of a profile's description. */
+function ProfileDetails({ value, onChange, className }: { value: Details; onChange: (d: Details) => void; className?: string }) {
+  const ids = { name: useId(), paper: useId(), light: useId(), sens: useId(), printer: useId(), rinse: useId(), notes: useId() };
+  const field = (k: keyof Details) => ({ value: value[k], onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onChange({ ...value, [k]: e.target.value }) });
+  return (
+    <div className={cn('grid grid-cols-2 gap-3', className)}>
+      <Field label="Profile name" htmlFor={ids.name} className="col-span-2"><Input id={ids.name} placeholder="e.g. Arches Platine · sunlight" {...field('name')} /></Field>
+      <Field label="Paper" htmlFor={ids.paper}><Input id={ids.paper} placeholder="e.g. Arches Platine" {...field('paper')} /></Field>
+      <Field label="Light source" htmlFor={ids.light}><Input id={ids.light} placeholder="e.g. sunlight, UV lightbox 365 nm" {...field('lightSource')} /></Field>
+      <Field label="Sensitizer" htmlFor={ids.sens}><Input id={ids.sens} placeholder="e.g. classic 2-part" {...field('sensitizer')} /></Field>
+      <Field label="Printer & film" htmlFor={ids.printer}><Input id={ids.printer} placeholder="e.g. Epson P700 · Pictorico" {...field('printerFilm')} /></Field>
+      <Field label="Rinse" htmlFor={ids.rinse} className="col-span-2"><Input id={ids.rinse} placeholder="e.g. water only, 5 min · vinegar first bath, then water · citric acid" {...field('rinse')} /></Field>
+      <Field label="Notes" htmlFor={ids.notes} className="col-span-2"><Textarea id={ids.notes} placeholder="Anything else about developing: coating, drying, toning, what you'd change next time…" {...field('notes')} /></Field>
+    </div>
+  );
+}
+
+/**
+ * Edits a profile in place: its details, and its current calibration's readings, exposure and conditions.
+ * A new scan replaces the readings instead of adding a re-test to the history.
+ */
+export function EditProfileDialog({ profile, open, onOpenChange }: { profile: Profile; open: boolean; onOpenChange: (open: boolean) => void }) {
+  const s = useStudio(), cal = profile.calibration;
+  const [details, setDetails] = useState(() => detailsIn(profile));
+  const [exposure, setExposure] = useState(''), [conditions, setConditions] = useState('');
+  const [readings, setReadings] = useState<Readings | null>(null);
+  const [saving, setSaving] = useState(false);
+  const ids = { exposure: useId(), cond: useId() };
+  const current: Readings | null = cal?.readingsLstar ? { L: cal.readingsLstar, colors: cal.colors } : null;
+
+  // Start from the saved values each time the dialog opens.
+  const [shown, setShown] = useState(false);
+  if (open !== shown) {
+    setShown(open);
+    if (open) {
+      setDetails(detailsIn(profile)); setReadings(null);
+      setExposure(minutes(cal?.exposureSeconds ?? profile.exposureSeconds)); setConditions(cal?.conditions ?? '');
+    }
+  }
+  async function save() {
+    if (!details.name.trim()) return toast.error('Give the profile a name.');
+    setSaving(true);
+    const ok = await s.editProfile(profile.id, { ...detailsOut(details), name: details.name.trim() }, readings,
+      exposure ? parseFloat(exposure) : null, conditions.trim() || null);
+    setSaving(false);
+    if (ok) { onOpenChange(false); toast.success(readings ? 'Profile saved with the new readings' : 'Profile saved'); }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="flex max-h-[92vh] flex-col gap-0 p-0 sm:max-w-2xl">
+        <DialogHeader className="border-b py-4 pr-12 pl-6">
+          <DialogTitle>Edit “{profile.name}”</DialogTitle>
+          <DialogDescription>
+            Changes are made in place. To keep the old readings as history, use a re-test in the calibration window instead.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid min-h-0 gap-6 overflow-y-auto px-6 py-5 text-[13px] leading-relaxed text-foreground/85">
+          <ProfileDetails value={details} onChange={setDetails} />
+          <section>
+            <h3 className="mb-2 text-sm font-semibold text-foreground">Calibration</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Exposure (minutes)" htmlFor={ids.exposure}><Input id={ids.exposure} type="number" min={0} step={0.5} value={exposure} onChange={e => setExposure(e.target.value)} /></Field>
+              <Field label="Conditions" htmlFor={ids.cond}><Input id={ids.cond} placeholder="e.g. clear sky, noon, July" value={conditions} onChange={e => setConditions(e.target.value)} /></Field>
+            </div>
+            <p className="mt-3">
+              {readings
+                ? <>New readings, replacing the ones from {cal && new Date(cal.measuredAt).toLocaleDateString()}. <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => setReadings(null)}>Keep the old ones</button></>
+                : <>Rescanned the print, or clicked the wrong patches? Read a new scan to replace the readings from {cal && new Date(cal.measuredAt).toLocaleDateString()}.</>}
+            </p>
+            <Tabs defaultValue="scan" className="mt-2">
+              <TabsList>
+                <TabsTrigger value="scan">From a scan</TabsTrigger>
+                <TabsTrigger value="type">Type values</TabsTrigger>
+              </TabsList>
+              <TabsContent value="scan"><ScanReader onReadings={setReadings} /></TabsContent>
+              <TabsContent value="type"><TypedReadings onReadings={setReadings} /></TabsContent>
+            </Tabs>
+            <CalChart readings={readings ?? current} />
+            {readings || current
+              ? <ReadingsSummary readings={readings ?? current} />
+              : <p className="mt-2 text-xs text-muted-foreground">This profile was imported without its raw readings, so there&apos;s nothing to chart until you read a new scan.</p>}
+          </section>
+        </div>
+        <div className="flex justify-end gap-2 border-t px-6 py-3">
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button onClick={save} disabled={saving}>{readings ? 'Save & refit' : 'Save'}</Button>
         </div>
       </DialogContent>
     </Dialog>
