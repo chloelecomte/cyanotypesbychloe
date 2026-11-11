@@ -12,7 +12,10 @@ export async function pngWithDpi(canvas: HTMLCanvasElement, dpi: number) {
 }
 export function download(blob: Blob, name: string) {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
-  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  document.body.appendChild(a); a.click(); a.remove();
+  // Safari reads the blob URL while it writes the file; revoking it before then leaves a stuck
+  // empty "name.download". Large negatives (100+ MB) can take well over a minute, so wait long.
+  setTimeout(() => URL.revokeObjectURL(a.href), 5 * 60_000);
 }
 /** Shows the canvas at its true size in a pop-up and opens the print dialog. */
 export async function printInWindow(win: Window, c: HTMLCanvasElement, dpi: number, title: string, margin: string) {
