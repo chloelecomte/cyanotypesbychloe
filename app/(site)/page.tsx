@@ -24,6 +24,13 @@ export default function Home() {
         <p>
           <Link className="button-link" href="/tools/negative-studio">Open Negative Studio</Link>
         </p>
+        <p>
+          <b>Post Studio</b> makes Instagram posts: a photo of any shape centered on a white border, or a simple
+          collage of several photos.
+        </p>
+        <p>
+          <Link className="button-link" href="/tools/post-studio">Open Post Studio</Link>
+        </p>
       </section>
     </>
   );
