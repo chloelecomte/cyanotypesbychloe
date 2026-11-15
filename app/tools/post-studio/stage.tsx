@@ -6,6 +6,7 @@ import { ImagePlus, Loader2, X } from 'lucide-react';
 import { format, NO_VIEW, panBy, type View } from '@/lib/post-studio/layout';
 import { designRects, drawPost, type Cell } from '@/lib/post-studio/render';
 import { cn } from '@/lib/utils';
+import { CarouselStage } from './carousel-stage';
 import type { PostState } from './post-studio';
 
 export const PHOTO_DRAG = 'application/x-post-studio-photo';
@@ -14,6 +15,7 @@ export function Stage({ s }: { s: PostState }) {
   const { design: d, cells, photoMap, borderPhoto, selected } = s;
   const wrap = useRef<HTMLDivElement>(null), canvas = useRef<HTMLCanvasElement>(null), layer = useRef<HTMLDivElement>(null);
   const picker = useRef<HTMLInputElement>(null), pickInto = useRef<number | undefined>(undefined);
+  const carousel = d.mode === 'carousel';
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [dropping, setDropping] = useState(false);
 
@@ -32,7 +34,7 @@ export function Stage({ s }: { s: PostState }) {
 
   useEffect(() => {
     const c = canvas.current;
-    if (!c || !dispW) return;
+    if (!c || !dispW || carousel) return;
     const dpr = window.devicePixelRatio || 1;
     c.width = Math.round(dispW * dpr); c.height = Math.round(dispH * dpr);
     drawPost(c.getContext('2d')!, d, shown, photoMap, collage ? 'rgba(128,128,140,0.22)' : undefined);
@@ -70,11 +72,22 @@ export function Stage({ s }: { s: PostState }) {
     return () => { window.removeEventListener('dragover', over); window.removeEventListener('dragleave', leave); window.removeEventListener('drop', drop); };
   }, []);
 
-  // Delete or Backspace empties the selected cell; Escape deselects.
+  // Delete or Backspace empties the selected cell; Escape deselects. In a carousel, Delete takes the
+  // photo out of the selected frame, and pressed again removes the empty frame.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const st = latest.current;
-      if ((e.target as HTMLElement).closest('input, textarea, [role=slider]') || st.selected == null) return;
+      if ((e.target as HTMLElement).closest('input, textarea, [role=slider]')) return;
+      if (st.design.mode === 'carousel') {
+        const fr = st.frames.find(x => x.id === st.selectedFrame);
+        if (e.key === 'Escape') { if (st.cropping != null) st.setCropping(null); else st.setSelectedFrame(null); }
+        if (fr && (e.key === 'Delete' || e.key === 'Backspace')) {
+          e.preventDefault();
+          if (fr.photoId != null) st.clearFrame(fr.id); else st.removeFrame(fr.id);
+        }
+        return;
+      }
+      if (st.selected == null) return;
       if (e.key === 'Escape') st.setSelected(null);
       if ((e.key === 'Delete' || e.key === 'Backspace') && st.design.mode === 'collage') { e.preventDefault(); st.clearCell(st.selected); }
     };
@@ -90,7 +103,7 @@ export function Stage({ s }: { s: PostState }) {
       className={cn('relative order-2 grid h-[55dvh] min-h-0 min-w-0 shrink-0 place-items-center overflow-hidden bg-background md:order-none md:h-auto', dropping && 'bg-accent/40')}
       onPointerDown={e => { if (e.target === e.currentTarget) s.setSelected(null); }}
     >
-      <div className="relative shadow-2xl shadow-black/40" style={{ width: dispW, height: dispH }}>
+      {carousel ? <CarouselStage s={s} box={box} onPick={id => pick(id)} /> : <div className="relative shadow-2xl shadow-black/40" style={{ width: dispW, height: dispH }}>
         <canvas ref={canvas} className="absolute inset-0 size-full" aria-label="Post preview" role="img" />
         <div ref={layer} className="absolute inset-0">
           {rects.map((r, i) => (
@@ -102,7 +115,7 @@ export function Stage({ s }: { s: PostState }) {
             />
           ))}
         </div>
-      </div>
+      </div>}
       {s.loading > 0 && (
         <div className="absolute top-3 right-3 flex items-center gap-2 rounded-md bg-card px-3 py-1.5 text-xs text-muted-foreground shadow">
           <Loader2 className="size-3.5 animate-spin" />Opening {s.loading} photo{s.loading > 1 ? 's' : ''}…
