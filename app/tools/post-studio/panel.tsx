@@ -2,16 +2,20 @@
 
 // The left-hand side: layout, background, photos and export.
 import { useRef, useState } from 'react';
-import { Download, Images, LayoutGrid, Plus, RotateCcw, Share, Square, X } from 'lucide-react';
+import {
+  ArrowDownToLine, ArrowUpToLine, Columns2, Crop, Download, GalleryHorizontal, Images, LayoutGrid, MoveVertical, Plus, RectangleHorizontal, RotateCcw, Rows2, Share, Shuffle, Square, Trash2, X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { CELL_RATIOS, FORMATS, format, NO_VIEW, type CellRatio, type FormatId } from '@/lib/post-studio/layout';
-import { exportName, exportPost, type Cell, type ExportSettings, type Photo } from '@/lib/post-studio/render';
+import { LAYOUTS, layoutBoxes, slidesOf } from '@/lib/post-studio/carousel';
+import { exportName, exportPost, exportSlides, type Cell, type ExportSettings, type Photo } from '@/lib/post-studio/render';
 import { download } from '@/lib/negative-studio/output';
+import { downloadAll } from '@/lib/panels/panels';
 import { cn } from '@/lib/utils';
 import { BusyButton, SliderRow, SubHeading, Tip, useBusy } from '../negative-studio/controls';
-import type { PostState } from './post-studio';
+import { MAX_TILES, type PostState } from './post-studio';
 import { PHOTO_DRAG } from './stage';
 
 const BACKGROUNDS = [
@@ -26,18 +30,23 @@ export function Panel({ s }: { s: PostState }) {
     <div className="p-4">
       <ToggleGroup
         type="single" variant="outline" className="w-full" value={d.mode} aria-label="Kind of post"
-        onValueChange={v => v && s.update(x => ({ ...x, mode: v as typeof d.mode }))}
+        onValueChange={v => {
+          if (!v) return;
+          s.update(x => ({ ...x, mode: v as typeof d.mode }));
+          if (v === 'carousel' && d.format === 'story') s.setFormat('portrait'); // stories aren't carousels
+        }}
       >
         <ToggleGroupItem value="border" className={cn('flex-1', onItem)}><Square />Border</ToggleGroupItem>
         <ToggleGroupItem value="collage" className={cn('flex-1', onItem)}><LayoutGrid />Collage</ToggleGroupItem>
+        <ToggleGroupItem value="carousel" className={cn('flex-1', onItem)}><GalleryHorizontal />Carousel</ToggleGroupItem>
       </ToggleGroup>
 
       <SubHeading>Post shape</SubHeading>
-      <div className="grid grid-cols-5 gap-1.5" role="radiogroup" aria-label="Post shape">
-        {FORMATS.map(f => (
+      <div className={cn('grid gap-1.5', d.mode === 'carousel' ? 'grid-cols-4' : 'grid-cols-5')} role="radiogroup" aria-label="Post shape">
+        {FORMATS.filter(f => d.mode !== 'carousel' || f.id !== 'story').map(f => (
           <button
             key={f.id} type="button" role="radio" aria-checked={d.format === f.id} title={`${f.label} · ${f.w} × ${f.h}`}
-            onClick={() => s.update(x => ({ ...x, format: f.id as FormatId }))}
+            onClick={() => s.setFormat(f.id as FormatId)}
             className={cn(
               'flex flex-col items-center gap-1 rounded-md border py-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground',
               d.format === f.id && 'border-primary bg-primary/15 text-foreground',
@@ -50,9 +59,11 @@ export function Panel({ s }: { s: PostState }) {
           </button>
         ))}
       </div>
-      <Tip className="mt-1.5">{format(d.format).label}, {format(d.format).w} × {format(d.format).h}. Portrait 4:5 fills the most of the feed.</Tip>
+      <Tip className="mt-1.5">
+        {format(d.format).label}, {format(d.format).w} × {format(d.format).h}{d.mode === 'carousel' && ' per slide'}. Portrait 4:5 fills the most of the feed.
+      </Tip>
 
-      {d.mode === 'border' ? <BorderControls s={s} /> : <CollageControls s={s} />}
+      {d.mode === 'border' ? <BorderControls s={s} /> : d.mode === 'collage' ? <CollageControls s={s} /> : <CarouselControls s={s} />}
 
       <SubHeading>Background</SubHeading>
       <div className="flex items-center gap-2">
@@ -131,10 +142,94 @@ function CollageControls({ s }: { s: PostState }) {
   </>;
 }
 
+function CarouselControls({ s }: { s: PostState }) {
+  const { design: d, frames } = s, c = d.carousel, f = format(d.format);
+  const sel = frames.find(x => x.id === s.selectedFrame) ?? null;
+  return <>
+    <SubHeading>Slides</SubHeading>
+    <SliderRow label="Slides" value={c.slides} min={2} max={10} step={1} def={3} format={String} onChange={v => s.setCarousel({ slides: v })} />
+
+    <SubHeading>Starting layout</SubHeading>
+    <div className="grid grid-cols-4 gap-1.5" role="radiogroup" aria-label="Starting layout">
+      {LAYOUTS.map(l => (
+        <button
+          key={l.id} type="button" role="radio" aria-checked={c.layout === l.id} title={l.hint}
+          onClick={() => s.setCarousel({ layout: l.id })}
+          className={cn(
+            'flex flex-col items-center gap-1 rounded-md border px-1 py-2 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground',
+            c.layout === l.id && 'border-primary bg-primary/15 text-foreground',
+          )}
+        >
+          <LayoutIcon id={l.id} aspect={f.h / f.w} />
+          {l.label}
+        </button>
+      ))}
+    </div>
+    <Tip className="mt-1.5">
+      {c.layout === 'custom'
+        ? <>You’ve arranged the frames by hand, so the settings above won’t move them. Pick a layout to start over (photos stay in order).</>
+        : LAYOUTS.find(l => l.id === c.layout)!.hint}
+    </Tip>
+    {c.layout === 'mosaic' && <>
+      <SliderRow label="Photos in the mosaic" value={c.count} min={2} max={MAX_TILES} step={1} def={c.slides * 2} format={String} onChange={v => s.setCarousel({ count: v })} />
+      <Button variant="outline" size="sm" className="w-full" onClick={s.shuffle}><Shuffle />Shuffle the mosaic</Button>
+    </>}
+    <SliderRow label="Outer border" value={c.margin} min={0} max={0.2} step={0.0025} def={0.06} format={pct} onChange={v => s.setCarousel({ margin: v })} />
+    <SliderRow label="Space between" value={c.gap} min={0} max={0.1} step={0.0025} def={0.025} format={pct} onChange={v => s.setCarousel({ gap: v })} />
+
+    <SubHeading className="flex items-center">
+      Frames · {frames.length}
+      <Button variant="ghost" size="sm" className="ml-auto h-6 normal-case tracking-normal" onClick={s.addFrame}><Plus />Add frame</Button>
+    </SubHeading>
+    <Tip>
+      Drag a frame to move it and its handles to resize it; edges snap to the slides, the borders and other frames (hold Option/Alt to stop snapping).
+      Frames can overlap and run off the edges. Double-click a photo to crop it, and scroll over it to zoom.
+      Drag a photo from the list below onto an empty spot to give it a frame of its own shape.
+    </Tip>
+    {sel && <div className="mt-2 grid gap-1 rounded-md border p-2">
+      <div className="text-xs text-muted-foreground">
+        Selected frame{sel.photoId != null && <> · {s.photoMap.get(sel.photoId)?.name}</>} · on slide{slidesOf(sel, c.slides).length > 1 ? 's' : ''} {slidesOf(sel, c.slides).map(i => i + 1).join(', ') || 'none'}
+      </div>
+      {sel.photoId != null && <>
+        <SliderRow label="Zoom" value={sel.zoom} min={1} max={5} step={0.01} def={1} format={v => `${v.toFixed(2)}×`} onChange={v => s.setFrameView(sel.id, { zoom: v })} />
+        <div className="flex flex-wrap gap-1">
+          <Button variant={s.cropping === sel.id ? 'default' : 'outline'} size="sm" onClick={() => s.setCropping(s.cropping === sel.id ? null : sel.id)}><Crop />{s.cropping === sel.id ? 'Done cropping' : 'Crop'}</Button>
+          <Button variant="ghost" size="sm" onClick={() => s.setFrameView(sel.id, NO_VIEW)}><RotateCcw />Recenter</Button>
+          <Button variant="ghost" size="sm" onClick={() => s.clearFrame(sel.id)}><X />Empty</Button>
+        </div>
+      </>}
+      <div className="flex flex-wrap gap-1">
+        <Button variant="ghost" size="sm" title="Cut this frame into two, side by side" onClick={() => s.splitFrame(sel.id, 'v')}><Columns2 />Split</Button>
+        <Button variant="ghost" size="sm" title="Cut this frame into two, one above the other" onClick={() => s.splitFrame(sel.id, 'h')}><Rows2 />Split</Button>
+        <Button variant="ghost" size="sm" title="Stretch from the top of the slides to the bottom" onClick={() => s.fullHeight(sel.id)}><MoveVertical />Full height</Button>
+        {sel.photoId != null && <Button variant="ghost" size="sm" title="Reshape the frame so the whole photo shows, uncropped" onClick={() => s.fitFrameToPhoto(sel.id)}><RectangleHorizontal />Photo’s shape</Button>}
+      </div>
+      <div className="flex flex-wrap gap-1">
+        <Button variant="ghost" size="sm" onClick={() => s.restack(sel.id, 1)}><ArrowUpToLine />To front</Button>
+        <Button variant="ghost" size="sm" onClick={() => s.restack(sel.id, -1)}><ArrowDownToLine />To back</Button>
+        <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => s.removeFrame(sel.id)}><Trash2 />Delete frame</Button>
+      </div>
+    </div>}
+  </>;
+}
+
+/** A small drawing of a starting layout over three slides. */
+function LayoutIcon({ id, aspect }: { id: (typeof LAYOUTS)[number]['id']; aspect: number }) {
+  const n = 3, sw = 14, sh = Math.min(22, sw * aspect);
+  const boxes = layoutBoxes(id, { slides: n, margin: 0.1, gap: 0.08, count: 6, seed: 2 }, aspect);
+  return (
+    <svg width={sw * n} height={sh} viewBox={`0 0 ${sw * n} ${sh}`} className="text-current" aria-hidden>
+      <rect x={0.5} y={0.5} width={sw * n - 1} height={sh - 1} fill="none" stroke="currentColor" strokeOpacity={0.4} />
+      {[1, 2].map(i => <line key={i} x1={i * sw} x2={i * sw} y1={0} y2={sh} stroke="currentColor" strokeOpacity={0.4} strokeDasharray="2 2" />)}
+      {boxes.map((b, i) => <rect key={i} x={b.x * sw} y={b.y * sh} width={b.w * sw} height={b.h * sh} fill="currentColor" fillOpacity={0.55} />)}
+    </svg>
+  );
+}
+
 function PhotoTray({ s }: { s: PostState }) {
-  const { photos, design: d, cells, borderPhoto } = s;
+  const { photos, design: d, cells, frames, borderPhoto } = s;
   const input = useRef<HTMLInputElement>(null);
-  const used = new Set(cells.map(c => c.photoId));
+  const used = new Set((d.mode === 'carousel' ? frames : cells).map(c => c.photoId));
   return <>
     <SubHeading className="mt-5 flex items-center">
       Photos{photos.length > 0 && ` · ${photos.length}`}
@@ -154,10 +249,10 @@ function PhotoTray({ s }: { s: PostState }) {
             return (
               <div key={p.id} className="group relative">
                 <button
-                  type="button" draggable title={d.mode === 'border' ? `Show ${p.name}` : `${p.name} · drag onto a cell, or click to place it`}
+                  type="button" draggable title={d.mode === 'border' ? `Show ${p.name}` : `${p.name} · drag onto a ${d.mode === 'carousel' ? 'frame' : 'cell'}, or click to place it`}
                   onDragStart={e => { e.dataTransfer.setData(PHOTO_DRAG, String(p.id)); e.dataTransfer.effectAllowed = 'move'; }}
                   onClick={() => s.placeFromTray(p.id)}
-                  className={cn('block aspect-square w-full overflow-hidden rounded-md border-2 border-transparent bg-muted', on && 'border-primary', d.mode === 'collage' && !on && 'opacity-60')}
+                  className={cn('block aspect-square w-full overflow-hidden rounded-md border-2 border-transparent bg-muted', on && 'border-primary', d.mode !== 'border' && !on && 'opacity-60')}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element -- local blob URL */}
                   <img src={p.thumb} alt={p.name} className="size-full object-cover" draggable={false} />
@@ -176,13 +271,25 @@ function PhotoTray({ s }: { s: PostState }) {
 }
 
 function ExportControls({ s }: { s: PostState }) {
-  const { design: d, ex, cells, photos, photoMap, borderPhoto } = s;
+  const { design: d, ex, cells, frames, photos, photoMap, borderPhoto } = s;
   const [busy, run] = useBusy();
   const [canShare] = useState(() => {
     try { return !!navigator.canShare?.({ files: [new File([''], 'post.jpg', { type: 'image/jpeg' })] }); } catch { return false; }
   });
   const f = format(d.format);
-  const empty = d.mode === 'border' ? !borderPhoto : !cells.some(c => c.photoId != null);
+  const carousel = d.mode === 'carousel';
+  const empty = d.mode === 'border' ? !borderPhoto : !(carousel ? frames : cells).some(c => c.photoId != null);
+
+  /** Every file the Download (or Download all) button makes, in order. */
+  async function files(all: boolean): Promise<{ blob: Blob; name: string }[]> {
+    if (carousel) {
+      const first = frames.find(c => c.photoId != null), name = (first && photoMap.get(first.photoId!)?.name) || 'carousel';
+      return (await exportSlides(d, frames, photoMap, ex)).map((blob, i) => ({ blob, name: exportName(name, d, ex, i) }));
+    }
+    const out = [];
+    for (const j of jobs(all)) out.push({ blob: await exportPost(d, j.cells, photoMap, ex), name: exportName(j.name, d, ex) });
+    return out;
+  }
 
   const jobs = (all: boolean): { cells: Cell[]; name: string }[] => {
     if (d.mode === 'collage') {
@@ -194,29 +301,21 @@ function ExportControls({ s }: { s: PostState }) {
   };
 
   async function save(all: boolean) {
-    const list = jobs(all);
-    for (const [i, j] of list.entries()) {
-      download(await exportPost(d, j.cells, photoMap, ex), exportName(j.name, d, ex));
-      // Browsers drop rapid-fire downloads; a short pause lets each one start.
-      if (i < list.length - 1) await new Promise(r => setTimeout(r, 400));
-    }
-    if (list.length > 1) toast.success(`Saved ${list.length} posts`);
+    const list = await files(all);
+    await downloadAll(list, download);
+    if (list.length > 1) toast.success(`Saved ${list.length} ${carousel ? 'slides' : 'posts'}`);
   }
 
   // Sharing needs a recent tap, which a slow export can outlast; then the file is kept for a second tap.
   const ready = useRef<{ key: string; files: File[] } | null>(null);
   async function share() {
-    const key = JSON.stringify([d, ex, cells, borderPhoto?.id]);
-    let files = ready.current?.key === key ? ready.current.files : null;
-    if (!files) {
-      files = [];
-      for (const j of jobs(false)) {
-        const blob = await exportPost(d, j.cells, photoMap, ex);
-        files.push(new File([blob], exportName(j.name, d, ex), { type: blob.type }));
-      }
-      ready.current = { key, files };
+    const key = JSON.stringify([d, ex, carousel ? frames : cells, borderPhoto?.id]);
+    let shared = ready.current?.key === key ? ready.current.files : null;
+    if (!shared) {
+      shared = (await files(false)).map(f => new File([f.blob], f.name, { type: f.blob.type }));
+      ready.current = { key, files: shared };
     }
-    try { await navigator.share({ files }); ready.current = null; }
+    try { await navigator.share({ files: shared }); ready.current = null; }
     catch (e) {
       if ((e as Error).name === 'NotAllowedError') toast('Your post is ready', { description: 'Tap Share again to send it to Photos or Instagram.' });
       else if ((e as Error).name !== 'AbortError') throw e;
@@ -235,8 +334,13 @@ function ExportControls({ s }: { s: PostState }) {
         <ToggleGroupItem value="jpeg" className={cn('flex-1 text-xs', onItem)}>JPEG</ToggleGroupItem>
         <ToggleGroupItem value="png" className={cn('flex-1 text-xs', onItem)}>PNG</ToggleGroupItem>
       </ToggleGroup>
-      <Tip>Instagram shows posts {f.w} px wide; a larger file keeps a little more detail after Instagram compresses it.</Tip>
-      <BusyButton busy={busy} icon={<Download />} disabled={empty} onClick={() => run(() => save(false))}>Download</BusyButton>
+      <Tip>
+        Instagram shows posts {f.w} px wide; a larger file keeps a little more detail after Instagram compresses it.
+        {carousel && <> The carousel saves as {d.carousel.slides} numbered slides; add them to one post in that order.</>}
+      </Tip>
+      <BusyButton busy={busy} icon={<Download />} disabled={empty} onClick={() => run(() => save(false))}>
+        {carousel ? `Download ${d.carousel.slides} slides` : 'Download'}
+      </BusyButton>
       {d.mode === 'border' && photos.length > 1 && (
         <Button variant="outline" disabled={busy} onClick={() => run(() => save(true))}><Images />Download all {photos.length}</Button>
       )}
