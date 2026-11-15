@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { NO_VIEW, panBy, type Placement, type View } from '@/lib/panels/geometry';
-import { DEFAULT_PRINT, drawPanel, photoPlacement, printLayout, type PrintDesign } from '@/lib/print-studio/print';
+import { DEFAULT_PRINT, drawPanel, photoPlacement, printLayout, resolveSize, type PrintDesign } from '@/lib/print-studio/print';
 import { downscale, openImage, photoName } from '@/lib/post-studio/render';
 import { cn } from '@/lib/utils';
 import { PrintPanel } from './print-panel';
@@ -56,16 +56,18 @@ function Studio() {
 export type PrintState = ReturnType<typeof usePrintState>;
 
 function usePrintState() {
-  const [design, setDesign] = useState<PrintDesign>(loadSettings);
+  // `settings` is what was chosen; `design` adds each print's size when sizing by the whole photo.
+  const [settings, setSettings] = useState<PrintDesign>(loadSettings);
   const [photo, setPhoto] = useState<PrintPhoto | null>(null);
   const [view, setView] = useState<View>(NO_VIEW);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    try { localStorage.setItem(STORE, JSON.stringify(design)); } catch { /* private mode */ }
-  }, [design]);
+    try { localStorage.setItem(STORE, JSON.stringify(settings)); } catch { /* private mode */ }
+  }, [settings]);
 
-  const update = (patch: Partial<PrintDesign>) => setDesign(d => ({ ...d, ...patch }));
+  const { design, ok: sizeOk } = resolveSize(settings, photo ? photo.w / photo.h : undefined);
+  const update = (patch: Partial<PrintDesign>) => setSettings(d => ({ ...d, ...patch }));
   const layout = printLayout(design);
   const placement = photo ? photoPlacement(photo.w, photo.h, layout, view) : null;
 
@@ -85,7 +87,7 @@ function usePrintState() {
     finally { setLoading(false); }
   }
 
-  return { design, update, photo, open, view, setView, layout, placement, loading };
+  return { design, sizeOk, update, photo, open, view, setView, layout, placement, loading };
 }
 
 function loadSettings(): PrintDesign {

@@ -38,6 +38,10 @@ export const ARRANGEMENTS = [
 
 export const DPIS = [150, 240, 300, 360] as const;
 
+/** Shapes for the whole photo, as width:height when wide. 'photo' keeps the photo's own shape, so nothing is cropped. */
+export const RATIOS = ['photo', '3:2', '4:3', '5:4', '1:1', '16:9', '2:1', '3:1'] as const;
+export type RatioId = (typeof RATIOS)[number];
+
 export type PrintDesign = {
   size: SizeId;
   /** The size of one print, in inches, as it hangs (already turned for landscape). */
@@ -55,12 +59,61 @@ export type PrintDesign = {
   dpi: number;
   type: 'jpeg' | 'png';
   unit: 'in' | 'cm';
+  /**
+   * 'print' sizes each print directly (w, h). 'overall' sizes the whole photo instead, to `ratio` (turned
+   * tall when `tall`), with one side set to `length`; each print's size then follows from the layout.
+   */
+  sizing: 'print' | 'overall';
+  ratio: RatioId;
+  tall: boolean;
+  side: 'w' | 'h';
+  length: number;
 };
 
 export const DEFAULT_PRINT: PrintDesign = {
   size: '8x10', w: 8, h: 10, cols: 3, rows: 1, gap: 2, continuous: true,
   border: 0, borderColor: '#ffffff', bleed: 0, dpi: 300, type: 'jpeg', unit: 'in',
+  sizing: 'print', ratio: 'photo', tall: false, side: 'h', length: 10,
 };
+
+/** Width ÷ height of the whole photo as it will print. Without a photo, 'photo' falls back to 3:2. */
+export function overallRatio(d: Pick<PrintDesign, 'ratio' | 'tall'>, photoAspect?: number) {
+  if (d.ratio === 'photo') return photoAspect ?? 1.5;
+  const [a, b] = d.ratio.split(':').map(Number);
+  return d.tall ? b / a : a / b;
+}
+
+/** The whole photo's printed size: the side that was set, and the other from the ratio. */
+export function overallSize(d: PrintDesign, photoAspect?: number) {
+  const r = overallRatio(d, photoAspect);
+  return d.side === 'w' ? { w: d.length, h: d.length / r } : { w: d.length * r, h: d.length };
+}
+
+/**
+ * The size of each print that makes the whole photo W × H. The photo spans the prints' photo areas,
+ * plus the gaps between them when it continues behind the gaps.
+ */
+export function printSizeFor(d: PrintDesign, W: number, H: number) {
+  const b = d.border;
+  return d.continuous
+    ? { w: (W + 2 * b - (d.cols - 1) * d.gap) / d.cols, h: (H + 2 * b - (d.rows - 1) * d.gap) / d.rows }
+    : { w: W / d.cols + 2 * b, h: H / d.rows + 2 * b };
+}
+
+/** The smallest photo area a print may have, so a layout always draws. */
+const MIN_AREA = 0.25;
+
+/**
+ * The settings with each print's size worked out. In 'overall' sizing, `ok` is false when the gaps or
+ * borders leave no room for the photo at that size (the prints then shrink to a minimum).
+ */
+export function resolveSize(d: PrintDesign, photoAspect?: number): { design: PrintDesign; ok: boolean } {
+  if (d.sizing !== 'overall') return { design: d, ok: true };
+  const o = overallSize(d, photoAspect), p = printSizeFor(d, o.w, o.h);
+  const min = 2 * d.border + MIN_AREA, ok = p.w >= min && p.h >= min;
+  return { design: { ...d, size: 'custom', w: Math.max(min, p.w), h: Math.max(min, p.h) }, ok };
+}
+
 
 export const arrangementName = (d: Pick<PrintDesign, 'cols' | 'rows'>) => {
   const n = d.cols * d.rows;

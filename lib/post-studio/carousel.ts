@@ -10,19 +10,26 @@ export const LAYOUTS = [
   { id: 'bridge', label: 'Bridge', hint: 'A photo crosses every seam: half a slide on each side, with half-slide photos at the ends.' },
   { id: 'panorama', label: 'Panorama', hint: 'One photo across every slide.' },
   { id: 'single', label: 'One each', hint: 'One photo per slide, with even borders that line up as you swipe.' },
+  { id: 'mosaic', label: 'Mosaic', hint: 'Photos of mixed sizes tiled across the whole strip, crossing the seams at different points. Shuffle for another arrangement; set the space between to 0 for a seamless look.' },
 ] as const;
 export type LayoutId = (typeof LAYOUTS)[number]['id'];
 
 /** `layout` is the starting layout, or 'custom' once frames were moved by hand (then settings stop rearranging them). */
-export type Carousel = { slides: number; margin: number; gap: number; layout: LayoutId | 'custom' };
+export type Carousel = {
+  slides: number; margin: number; gap: number; layout: LayoutId | 'custom';
+  /** Mosaic only: how many tiles, and which shuffle. */
+  count: number; seed: number;
+};
+export type LayoutParams = Pick<Carousel, 'slides' | 'margin' | 'gap'> & Partial<Pick<Carousel, 'count' | 'seed'>>;
 
 export const MIN_SIZE = 0.04;
 
 /** Frame boxes for a starting layout. `aspect` is slide height ÷ width. */
-export function layoutBoxes(id: LayoutId, c: Pick<Carousel, 'slides' | 'margin' | 'gap'>, aspect: number): Box[] {
+export function layoutBoxes(id: LayoutId, c: LayoutParams, aspect: number): Box[] {
   const n = c.slides, m = c.margin, g = c.gap, my = m / aspect;
   const row = (x: number, w: number): Box => ({ x, y: my, w, h: 1 - 2 * my });
   if (id === 'panorama') return [row(m, n - 2 * m)];
+  if (id === 'mosaic') return mosaicBoxes(row(m, n - 2 * m), c.count ?? n * 2, c.seed ?? 1, g, aspect, n);
   if (id === 'single') return Array.from({ length: n }, (_, i) => row(i + m, 1 - 2 * m));
   const half = 0.5 - g / 2 - m;
   return [
@@ -30,6 +37,74 @@ export function layoutBoxes(id: LayoutId, c: Pick<Carousel, 'slides' | 'margin' 
     ...Array.from({ length: n - 1 }, (_, j) => row(j + 0.5 + g / 2, 1 - g)),
     row(n - 0.5 + g / 2, half),
   ];
+}
+
+/** A small seeded random generator, so a shuffle always gives the same mosaic. */
+function random(seed: number) {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * `count` tiles filling `area` with `gap` between them, by cutting it in two again and again: across
+ * its longer side, at an uneven point, with the tiles shared out by size. Cuts close to a seam are
+ * moved off it, so photos run across the seams instead of stopping at them.
+ */
+export function mosaicBoxes(area: Box, count: number, seed: number, gap: number, aspect: number, slides: number): Box[] {
+  const rand = random(seed), gy = gap / aspect, out: Box[] = [];
+  const cut = (r: Box, k: number) => {
+    if (k <= 1) { out.push(r); return; }
+    const physW = r.w, physH = r.h * aspect; // in slide widths, so shapes compare fairly
+    const across = physW > physH * (0.75 + rand() * 0.5);
+    const k1 = Math.max(1, Math.min(k - 1, Math.round(k * (0.35 + rand() * 0.3))));
+    let f = Math.min(0.75, Math.max(0.25, k1 / k + (rand() - 0.5) * 0.16));
+    if (across) {
+      let x = r.x + r.w * f;
+      const seam = Math.round(x);
+      if (seam > 0 && seam < slides && Math.abs(x - seam) < 0.1) {
+        const away = x < seam ? seam - 0.18 : seam + 0.18;
+        if (away > r.x + r.w * 0.2 && away < r.x + r.w * 0.8) x = away;
+      }
+      f = (x - r.x) / r.w;
+      cut({ x: r.x, y: r.y, w: r.w * f - gap / 2, h: r.h }, k1);
+      cut({ x: x + gap / 2, y: r.y, w: r.w * (1 - f) - gap / 2, h: r.h }, k - k1);
+    } else {
+      cut({ x: r.x, y: r.y, w: r.w, h: r.h * f - gy / 2 }, k1);
+      cut({ x: r.x, y: r.y + r.h * f + gy / 2, w: r.w, h: r.h * (1 - f) - gy / 2 }, k - k1);
+    }
+  };
+  cut(area, Math.max(1, Math.round(count)));
+  return out;
+}
+
+/** A frame cut in two, down the middle ('v', side by side) or across it ('h', one above the other). */
+export function splitBox(b: Box, dir: 'v' | 'h', gap: number, aspect: number): [Box, Box] {
+  if (dir === 'v') {
+    const w = Math.max(MIN_SIZE, (b.w - gap) / 2);
+    return [{ ...b, w }, { ...b, x: b.x + b.w - w, w }];
+  }
+  const h = Math.max(MIN_SIZE / aspect, (b.h - gap / aspect) / 2);
+  return [{ ...b, h }, { ...b, y: b.y + b.h - h, h }];
+}
+
+/**
+ * A frame reshaped to a photo's shape (`photoAspect` = width ÷ height), so the whole photo shows
+ * uncropped. It keeps its height and center.
+ */
+export function boxForPhoto(b: Box, photoAspect: number, aspect: number): Box {
+  const w = Math.max(MIN_SIZE, photoAspect * b.h * aspect);
+  return { ...b, x: b.x + b.w / 2 - w / 2, w };
+}
+
+/** A new frame shaped like a photo, centered on a point (in slide units), a little over half a slide tall. */
+export function boxAt(x: number, y: number, photoAspect: number, aspect: number): Box {
+  const h = 0.6, w = photoAspect * h * aspect;
+  return { x: x - w / 2, y: Math.min(1 - h, Math.max(0, y - h / 2)), w, h };
 }
 
 /** Frames for new boxes, keeping the photos (and their crops) of the old frames in order. */

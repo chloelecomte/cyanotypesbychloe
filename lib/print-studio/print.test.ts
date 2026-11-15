@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_PRINT, effectivePpi, fittingDpi, jpegWithDpi, photoPlacement, printLayout, printName, type PrintDesign } from './print';
+import { DEFAULT_PRINT, effectivePpi, fittingDpi, jpegWithDpi, photoPlacement, printLayout, printName, resolveSize, type PrintDesign } from './print';
 
 const tri: PrintDesign = { ...DEFAULT_PRINT, w: 8, h: 10, cols: 3, rows: 1, gap: 2 };
 
@@ -53,5 +53,36 @@ describe('files', () => {
   it('names files by arrangement, size and dpi', () => {
     expect(printName('Ferns!', tri, 0, 300)).toBe('Ferns - triptych 1 of 3 - 8x10in 300dpi.jpg');
     expect(printName('x', { ...tri, cols: 1, unit: 'cm', w: 300 / 25.4, h: 400 / 25.4, type: 'png' }, 0, 240)).toBe('x - single - 30x40cm 240dpi.png');
+  });
+});
+
+describe('sizing by the whole photo', () => {
+  const base: PrintDesign = { ...tri, sizing: 'overall', ratio: '3:2', side: 'w', length: 54, gap: 0 };
+  it('splits a 54 × 36 photo into three 18 × 36 prints', () => {
+    const { design, ok } = resolveSize(base);
+    expect(ok).toBe(true);
+    expect([design.w, design.h]).toEqual([18, 36]);
+    expect(printLayout(design).cover).toMatchObject({ w: 54, h: 36 });
+  });
+  it('keeps the photo 3:2 across the wall gaps', () => {
+    const { design } = resolveSize({ ...base, gap: 3 });
+    expect(design.w).toBe(16); // (54 − 2 × 3) / 3
+    const c = printLayout(design).cover;
+    expect(c.w / c.h).toBe(1.5);
+  });
+  it('accounts for borders, packed or continuous', () => {
+    const packed = resolveSize({ ...base, gap: 3, continuous: false, border: 1 }).design;
+    expect([packed.w, packed.h]).toEqual([20, 38]);
+    const c = printLayout(packed).cover;
+    expect([c.w, c.h]).toEqual([54, 36]);
+    const cont = resolveSize({ ...base, gap: 3, border: 1 }).design;
+    expect(printLayout(cont).cover).toMatchObject({ w: 54, h: 36 });
+  });
+  it("uses the photo's own shape, set by height", () => {
+    const { design } = resolveSize({ ...base, ratio: 'photo', side: 'h', length: 20 }, 2);
+    expect([design.w, design.h]).toEqual([40 / 3, 20]);
+  });
+  it('flags sizes the gaps leave no room for', () => {
+    expect(resolveSize({ ...base, length: 6, gap: 3 }).ok).toBe(false);
   });
 });

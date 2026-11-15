@@ -2,7 +2,9 @@
 
 // The left-hand side: layout, background, photos and export.
 import { useRef, useState } from 'react';
-import { ArrowDownToLine, ArrowUpToLine, Crop, Download, GalleryHorizontal, Images, LayoutGrid, Plus, RotateCcw, Share, Square, Trash2, X } from 'lucide-react';
+import {
+  ArrowDownToLine, ArrowUpToLine, Columns2, Crop, Download, GalleryHorizontal, Images, LayoutGrid, MoveVertical, Plus, RectangleHorizontal, RotateCcw, Rows2, Share, Shuffle, Square, Trash2, X,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
@@ -13,7 +15,7 @@ import { download } from '@/lib/negative-studio/output';
 import { downloadAll } from '@/lib/panels/panels';
 import { cn } from '@/lib/utils';
 import { BusyButton, SliderRow, SubHeading, Tip, useBusy } from '../negative-studio/controls';
-import type { PostState } from './post-studio';
+import { MAX_TILES, type PostState } from './post-studio';
 import { PHOTO_DRAG } from './stage';
 
 const BACKGROUNDS = [
@@ -148,7 +150,7 @@ function CarouselControls({ s }: { s: PostState }) {
     <SliderRow label="Slides" value={c.slides} min={2} max={10} step={1} def={3} format={String} onChange={v => s.setCarousel({ slides: v })} />
 
     <SubHeading>Starting layout</SubHeading>
-    <div className="grid grid-cols-3 gap-1.5" role="radiogroup" aria-label="Starting layout">
+    <div className="grid grid-cols-4 gap-1.5" role="radiogroup" aria-label="Starting layout">
       {LAYOUTS.map(l => (
         <button
           key={l.id} type="button" role="radio" aria-checked={c.layout === l.id} title={l.hint}
@@ -168,6 +170,10 @@ function CarouselControls({ s }: { s: PostState }) {
         ? <>You’ve arranged the frames by hand, so the settings above won’t move them. Pick a layout to start over (photos stay in order).</>
         : LAYOUTS.find(l => l.id === c.layout)!.hint}
     </Tip>
+    {c.layout === 'mosaic' && <>
+      <SliderRow label="Photos in the mosaic" value={c.count} min={2} max={MAX_TILES} step={1} def={c.slides * 2} format={String} onChange={v => s.setCarousel({ count: v })} />
+      <Button variant="outline" size="sm" className="w-full" onClick={s.shuffle}><Shuffle />Shuffle the mosaic</Button>
+    </>}
     <SliderRow label="Outer border" value={c.margin} min={0} max={0.2} step={0.0025} def={0.06} format={pct} onChange={v => s.setCarousel({ margin: v })} />
     <SliderRow label="Space between" value={c.gap} min={0} max={0.1} step={0.0025} def={0.025} format={pct} onChange={v => s.setCarousel({ gap: v })} />
 
@@ -177,7 +183,8 @@ function CarouselControls({ s }: { s: PostState }) {
     </SubHeading>
     <Tip>
       Drag a frame to move it and its handles to resize it; edges snap to the slides, the borders and other frames (hold Option/Alt to stop snapping).
-      Double-click a photo to crop it, and scroll over it to zoom.
+      Frames can overlap and run off the edges. Double-click a photo to crop it, and scroll over it to zoom.
+      Drag a photo from the list below onto an empty spot to give it a frame of its own shape.
     </Tip>
     {sel && <div className="mt-2 grid gap-1 rounded-md border p-2">
       <div className="text-xs text-muted-foreground">
@@ -192,6 +199,12 @@ function CarouselControls({ s }: { s: PostState }) {
         </div>
       </>}
       <div className="flex flex-wrap gap-1">
+        <Button variant="ghost" size="sm" title="Cut this frame into two, side by side" onClick={() => s.splitFrame(sel.id, 'v')}><Columns2 />Split</Button>
+        <Button variant="ghost" size="sm" title="Cut this frame into two, one above the other" onClick={() => s.splitFrame(sel.id, 'h')}><Rows2 />Split</Button>
+        <Button variant="ghost" size="sm" title="Stretch from the top of the slides to the bottom" onClick={() => s.fullHeight(sel.id)}><MoveVertical />Full height</Button>
+        {sel.photoId != null && <Button variant="ghost" size="sm" title="Reshape the frame so the whole photo shows, uncropped" onClick={() => s.fitFrameToPhoto(sel.id)}><RectangleHorizontal />Photo’s shape</Button>}
+      </div>
+      <div className="flex flex-wrap gap-1">
         <Button variant="ghost" size="sm" onClick={() => s.restack(sel.id, 1)}><ArrowUpToLine />To front</Button>
         <Button variant="ghost" size="sm" onClick={() => s.restack(sel.id, -1)}><ArrowDownToLine />To back</Button>
         <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => s.removeFrame(sel.id)}><Trash2 />Delete frame</Button>
@@ -203,7 +216,7 @@ function CarouselControls({ s }: { s: PostState }) {
 /** A small drawing of a starting layout over three slides. */
 function LayoutIcon({ id, aspect }: { id: (typeof LAYOUTS)[number]['id']; aspect: number }) {
   const n = 3, sw = 14, sh = Math.min(22, sw * aspect);
-  const boxes = layoutBoxes(id, { slides: n, margin: 0.1, gap: 0.08 }, aspect);
+  const boxes = layoutBoxes(id, { slides: n, margin: 0.1, gap: 0.08, count: 6, seed: 2 }, aspect);
   return (
     <svg width={sw * n} height={sh} viewBox={`0 0 ${sw * n} ${sh}`} className="text-current" aria-hidden>
       <rect x={0.5} y={0.5} width={sw * n - 1} height={sh - 1} fill="none" stroke="currentColor" strokeOpacity={0.4} />

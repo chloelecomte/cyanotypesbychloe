@@ -21,6 +21,7 @@ export function CarouselStage({ s, box, onPick }: { s: PostState; box: { w: numb
   const k = Math.max(0, Math.min((box.h - 2 * pad - labels) / f.h, Math.max((box.w - 2 * pad) / (n * f.w), MIN_SLIDE_PX / f.w)));
   const slideW = Math.round(f.w * k), dispW = slideW * n, dispH = Math.round(f.h * k);
   const canvas = useRef<HTMLCanvasElement>(null), layer = useRef<HTMLDivElement>(null);
+  const [dropAt, setDropAt] = useState(false);
 
   useEffect(() => {
     const c = canvas.current;
@@ -63,8 +64,19 @@ export function CarouselStage({ s, box, onPick }: { s: PostState; box: { w: numb
         <div className="relative shadow-2xl shadow-black/40" style={{ width: dispW, height: dispH }}>
           <canvas ref={canvas} className="absolute inset-0 size-full" aria-label="Carousel preview" role="img" />
           <div
-            ref={layer} className="absolute inset-0"
+            ref={layer} className={cn('absolute inset-0', dropAt && 'bg-cyan-ink/10')}
             onPointerDown={e => { if (e.target === e.currentTarget) { s.setSelectedFrame(null); s.setCropping(null); } }}
+            // A photo dragged from the list onto an empty spot gets a frame of its own shape there.
+            onDragOver={e => { if (e.target === e.currentTarget && e.dataTransfer.types.includes(PHOTO_DRAG)) { e.preventDefault(); setDropAt(true); } }}
+            onDragLeave={() => setDropAt(false)}
+            onDrop={e => {
+              setDropAt(false);
+              const id = e.dataTransfer.getData(PHOTO_DRAG);
+              if (!id || e.target !== e.currentTarget) return;
+              e.preventDefault();
+              const r = e.currentTarget.getBoundingClientRect();
+              s.addFrameAt((e.clientX - r.left) / Math.max(1, slideW), (e.clientY - r.top) / Math.max(1, dispH), Number(id));
+            }}
           >
             {frames.map(fr => (
               <FrameLayer

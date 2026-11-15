@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'reac
 import { toast } from 'sonner';
 import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import { layoutBoxes, newBox, refill, type Box, type Carousel, type Frame, type LayoutId } from '@/lib/post-studio/carousel';
+import { boxAt, boxForPhoto, layoutBoxes, newBox, refill, splitBox, type Box, type Carousel, type Frame, type LayoutId } from '@/lib/post-studio/carousel';
 import { format, gridFor, NO_VIEW, type FormatId, type View } from '@/lib/post-studio/layout';
 import { decodePhoto, type Cell, type Design, type ExportSettings, type Photo } from '@/lib/post-studio/render';
 import { Panel } from './panel';
@@ -16,12 +16,13 @@ const DEFAULT_DESIGN: Design = {
   background: '#ffffff',
   border: { margin: 0.08 },
   collage: { rows: 2, cols: 2, margin: 0.06, gap: 0.025, cellRatio: 'auto', fit: 'fill' },
-  carousel: { slides: 3, margin: 0.06, gap: 0.025, layout: 'bridge' },
+  carousel: { slides: 3, margin: 0.06, gap: 0.025, layout: 'bridge', count: 6, seed: 1 },
 };
 const DEFAULT_EXPORT: ExportSettings = { scale: 3, type: 'jpeg' };
 const EMPTY: Cell = { photoId: null, ...NO_VIEW };
 const STORE = 'post-studio.settings';
 const MAX_SLIDES = 10;
+export const MAX_TILES = 24;
 const aspectOf = (id: FormatId) => format(id).h / format(id).w;
 // Frame ids only need to be unique within the page, so a module counter does.
 let frameSeq = 1;
@@ -118,6 +119,38 @@ function usePostState() {
     update(d => ({ ...d, carousel: { ...d.carousel, layout: 'custom' } }));
     setSelectedFrame(f.id);
   }
+  const makeCustom = () => update(d => ({ ...d, carousel: { ...d.carousel, layout: 'custom' } }));
+  /** Cuts a frame in two; the first half keeps the photo. */
+  function splitFrame(id: number, dir: 'v' | 'h') {
+    const f = frames.find(x => x.id === id);
+    if (!f) return;
+    const [a, b] = splitBox(f, dir, design.carousel.gap, aspectOf(design.format));
+    const second: Frame = { ...b, id: newFrameId(), photoId: null, ...NO_VIEW };
+    setFrames(fs => fs.flatMap(x => (x.id === id ? [{ ...x, ...a }, second] : [x])));
+    makeCustom();
+  }
+  /** Reshapes a frame to its photo, so the whole photo shows. */
+  function fitFrameToPhoto(id: number) {
+    const f = frames.find(x => x.id === id), p = f?.photoId != null ? photoMap.get(f.photoId) : undefined;
+    if (!f || !p) return;
+    setFrame(id, x => ({ ...x, ...boxForPhoto(x, p.w / p.h, aspectOf(design.format)), ...NO_VIEW }));
+    makeCustom();
+  }
+  /** Stretches a frame from the top of the slides to the bottom, edge to edge. */
+  function fullHeight(id: number) {
+    setFrame(id, x => ({ ...x, y: 0, h: 1 }));
+    makeCustom();
+  }
+  /** A new frame for a photo, shaped like it, where the photo was dropped (in slide units). */
+  function addFrameAt(x: number, y: number, photoId: number) {
+    const p = photoMap.get(photoId);
+    if (!p) return;
+    const f: Frame = { ...boxAt(x, y, p.w / p.h, aspectOf(design.format)), id: newFrameId(), photoId, ...NO_VIEW };
+    setFrames(fs => [...fs.map(x => (x.photoId === photoId ? { ...x, photoId: null, ...NO_VIEW } : x)), f]);
+    makeCustom();
+    setSelectedFrame(f.id);
+  }
+  const shuffle = () => setCarousel({ layout: 'mosaic', seed: Math.floor(Math.random() * 1e9) });
   function removeFrame(id: number) {
     setFrames(fs => fs.filter(f => f.id !== id));
     update(d => ({ ...d, carousel: { ...d.carousel, layout: 'custom' } }));
@@ -185,9 +218,11 @@ function usePostState() {
   function fillFrames(added: Photo[], at?: number) {
     let base = frames;
     const c = design.carousel;
-    if (!frames.some(f => f.photoId != null) && c.layout !== 'custom' && c.layout !== 'panorama' && added.length > frames.length) {
-      const slides = Math.min(MAX_SLIDES, Math.max(2, c.layout === 'bridge' ? added.length - 1 : added.length));
-      const next = { ...c, slides };
+    if (!frames.some(f => f.photoId != null) && c.layout !== 'custom' && c.layout !== 'panorama' && added.length !== frames.length) {
+      // A mosaic gets one tile per photo; the other layouts get enough slides.
+      const next = c.layout === 'mosaic'
+        ? { ...c, count: Math.min(MAX_TILES, Math.max(2, added.length)) }
+        : added.length > frames.length ? { ...c, slides: Math.min(MAX_SLIDES, Math.max(2, c.layout === 'bridge' ? added.length - 1 : added.length)) } : c;
       update(d => ({ ...d, carousel: next }));
       base = refill(layoutBoxes(c.layout, next, aspectOf(design.format)), [], newFrameId);
     }
@@ -255,6 +290,7 @@ function usePostState() {
     addFiles, assign, fitGrid, setView, zoomCell, clearCell, removePhoto, placeFromTray, clearCells: () => setCells([]),
     setFormat, frames, selectedFrame, setSelectedFrame, cropping, setCropping,
     setCarousel, setBox, setFrameView, zoomFrame, clearFrame, addFrame, removeFrame, restack, assignFrame,
+    splitFrame, fitFrameToPhoto, fullHeight, addFrameAt, shuffle,
   };
 }
 

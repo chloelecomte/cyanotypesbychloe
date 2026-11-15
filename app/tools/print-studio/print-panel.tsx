@@ -14,7 +14,8 @@ import { download } from '@/lib/negative-studio/output';
 import { NO_VIEW } from '@/lib/panels/geometry';
 import { downloadAll, encode, renderPanel } from '@/lib/panels/panels';
 import {
-  ARRANGEMENTS, DPIS, drawPanel, effectivePpi, fittingDpi, jpegWithDpi, panelPixels, printName, SIZES, type PrintDesign, type SizeId,
+  ARRANGEMENTS, DPIS, drawPanel, effectivePpi, fittingDpi, jpegWithDpi, overallSize, panelPixels, printName, RATIOS, SIZES,
+  type PrintDesign, type RatioId, type SizeId,
 } from '@/lib/print-studio/print';
 import { cn } from '@/lib/utils';
 import { BusyButton, Field, NumberField, SliderRow, SubHeading, Tip, useBusy } from '../negative-studio/controls';
@@ -96,34 +97,49 @@ export function PrintPanel({ s }: { s: PrintState }) {
       <SliderRow label="Down" value={d.rows} min={1} max={4} step={1} def={1} format={String} onChange={v => s.update({ rows: v })} />
 
       <SubHeading className="flex items-center">
-        Each print
+        Size
         <ToggleGroup type="single" size="sm" className="ml-auto h-6" value={d.unit} onValueChange={v => v && s.update({ unit: v as 'in' | 'cm' })} aria-label="Units">
           <ToggleGroupItem value="in" className={cn('h-6 px-2 text-[11px] normal-case', onItem)}>in</ToggleGroupItem>
           <ToggleGroupItem value="cm" className={cn('h-6 px-2 text-[11px] normal-case', onItem)}>cm</ToggleGroupItem>
         </ToggleGroup>
       </SubHeading>
-      <div className="flex gap-2">
-        <Select value={d.size} onValueChange={v => pickSize(v as SizeId)}>
-          <SelectTrigger className="flex-1" aria-label="Print size"><SelectValue /></SelectTrigger>
-          <SelectContent>
-            {SIZES.map(p => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
-            <SelectItem value="custom">Custom size…</SelectItem>
-          </SelectContent>
-        </Select>
-        <ToggleGroup
-          type="single" variant="outline" value={landscape ? 'l' : 'p'} disabled={square} aria-label="Orientation"
-          onValueChange={v => { if (v && (v === 'l') !== landscape) s.update({ w: d.h, h: d.w }); }}
-        >
-          <ToggleGroupItem value="p" aria-label="Portrait" title="Portrait" className={onItem}><RectangleVertical /></ToggleGroupItem>
-          <ToggleGroupItem value="l" aria-label="Landscape" title="Landscape" className={onItem}><RectangleHorizontal /></ToggleGroupItem>
-        </ToggleGroup>
-      </div>
-      {d.size === 'custom' && (
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <Field label={`Width (${d.unit})`} htmlFor={ids.w}><NumberField id={ids.w} step="0.1" value={shown(d.w)} onChange={v => v > 0 && s.update({ w: fromShown(v) })} /></Field>
-          <Field label={`Height (${d.unit})`} htmlFor={ids.h}><NumberField id={ids.h} step="0.1" value={shown(d.h)} onChange={v => v > 0 && s.update({ h: fromShown(v) })} /></Field>
+      <ToggleGroup
+        type="single" variant="outline" size="sm" className="mb-2 w-full" value={d.sizing} aria-label="Size by"
+        onValueChange={v => {
+          if (v === 'print') s.update({ sizing: 'print', size: 'custom', w: d.w, h: d.h }); // keep the sizes worked out
+          if (v === 'overall') {
+            const c = s.layout.cover, reach = d.border > 0 ? 0 : d.bleed;
+            s.update({ sizing: 'overall', side: 'h', length: +(c.h - 2 * reach).toFixed(2) });
+          }
+        }}
+      >
+        <ToggleGroupItem value="print" className={cn('flex-1 text-xs', onItem)}>Each print</ToggleGroupItem>
+        <ToggleGroupItem value="overall" className={cn('flex-1 text-xs', onItem)}>Whole photo</ToggleGroupItem>
+      </ToggleGroup>
+      {d.sizing === 'overall' ? <OverallSize s={s} /> : <>
+        <div className="flex gap-2">
+          <Select value={d.size} onValueChange={v => pickSize(v as SizeId)}>
+            <SelectTrigger className="flex-1" aria-label="Print size"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {SIZES.map(p => <SelectItem key={p.id} value={p.id}>{p.label}</SelectItem>)}
+              <SelectItem value="custom">Custom size…</SelectItem>
+            </SelectContent>
+          </Select>
+          <ToggleGroup
+            type="single" variant="outline" value={landscape ? 'l' : 'p'} disabled={square} aria-label="Orientation"
+            onValueChange={v => { if (v && (v === 'l') !== landscape) s.update({ w: d.h, h: d.w }); }}
+          >
+            <ToggleGroupItem value="p" aria-label="Portrait" title="Portrait" className={onItem}><RectangleVertical /></ToggleGroupItem>
+            <ToggleGroupItem value="l" aria-label="Landscape" title="Landscape" className={onItem}><RectangleHorizontal /></ToggleGroupItem>
+          </ToggleGroup>
         </div>
-      )}
+        {d.size === 'custom' && (
+          <div className="mt-2 grid grid-cols-2 gap-2">
+            <Field label={`Width (${d.unit})`} htmlFor={ids.w}><NumberField id={ids.w} step="0.1" value={shown(d.w)} onChange={v => v > 0 && s.update({ w: fromShown(v) })} /></Field>
+            <Field label={`Height (${d.unit})`} htmlFor={ids.h}><NumberField id={ids.h} step="0.1" value={shown(d.h)} onChange={v => v > 0 && s.update({ h: fromShown(v) })} /></Field>
+          </div>
+        )}
+      </>}
 
       {d.cols * d.rows > 1 && <>
         <SubHeading>On the wall</SubHeading>
@@ -167,6 +183,55 @@ export function PrintPanel({ s }: { s: PrintState }) {
       <ExportControls s={s} />
     </div>
   );
+}
+
+/**
+ * Sizing by the whole photo: its shape and one side's length. Each print's size follows from the
+ * arrangement, gaps and borders, so a 3:2 photo 54 in wide becomes three 18 × 36 in prints.
+ */
+function OverallSize({ s }: { s: PrintState }) {
+  const { design: d, photo } = s;
+  const ids = { w: useId(), h: useId() };
+  const u = d.unit === 'cm' ? 2.54 : 1, shown = (inches: number) => +(inches * u).toFixed(2);
+  const aspect = photo ? photo.w / photo.h : undefined, o = overallSize(d, aspect);
+  const turnable = d.ratio !== 'photo' && d.ratio !== '1:1';
+  const ratioLabel = (r: RatioId) => {
+    if (r !== 'photo') return turnable && d.tall ? r.split(':').reverse().join(':') : r;
+    return photo ? `Photo’s shape (${simpleRatio(photo.w, photo.h)})` : 'Photo’s shape';
+  };
+  const n = d.cols * d.rows;
+  return <>
+    <div className="flex gap-2">
+      <Select value={d.ratio} onValueChange={v => s.update({ ratio: v as RatioId })}>
+        <SelectTrigger className="flex-1" aria-label="Shape of the whole photo"><SelectValue /></SelectTrigger>
+        <SelectContent>{RATIOS.map(r => <SelectItem key={r} value={r}>{ratioLabel(r)}</SelectItem>)}</SelectContent>
+      </Select>
+      <ToggleGroup type="single" variant="outline" value={d.tall ? 't' : 'w'} disabled={!turnable} aria-label="Orientation" onValueChange={v => v && s.update({ tall: v === 't' })}>
+        <ToggleGroupItem value="t" aria-label="Tall" title="Tall" className={onItem}><RectangleVertical /></ToggleGroupItem>
+        <ToggleGroupItem value="w" aria-label="Wide" title="Wide" className={onItem}><RectangleHorizontal /></ToggleGroupItem>
+      </ToggleGroup>
+    </div>
+    <div className="mt-2 grid grid-cols-2 gap-2">
+      <Field label={`Width (${d.unit})`} htmlFor={ids.w}><NumberField id={ids.w} step="0.5" value={shown(o.w)} onChange={v => v > 0 && s.update({ side: 'w', length: v / u })} /></Field>
+      <Field label={`Height (${d.unit})`} htmlFor={ids.h}><NumberField id={ids.h} step="0.5" value={shown(o.h)} onChange={v => v > 0 && s.update({ side: 'h', length: v / u })} /></Field>
+    </div>
+    <p className="mt-2 text-xs text-muted-foreground">
+      {n > 1 ? `Each of the ${n} prints` : 'The print'}: <b className="font-medium text-foreground">{shown(d.w)} × {shown(d.h)} {d.unit}</b>
+      {d.continuous && d.gap > 0 && n > 1 && <>, with the photo continuing behind the {shown(d.gap)} {d.unit} gaps</>}.
+    </p>
+    {!s.sizeOk && <Tip className="mt-1 text-amber-300">The gaps or borders are too wide for a photo this size; make it larger or the gaps smaller.</Tip>}
+    {!photo && d.ratio === 'photo' && <Tip className="mt-1">Until you choose a photo, this assumes 3:2.</Tip>}
+  </>;
+}
+
+/** A photo's shape as a small ratio, like 3:2, or to one decimal (1.78:1) when it isn't a simple one. */
+function simpleRatio(w: number, h: number) {
+  const r = Math.max(w, h) / Math.min(w, h);
+  for (let b = 1; b <= 8; b++) {
+    const a = Math.round(r * b);
+    if (Math.abs(a / b - r) < 0.01) return w >= h ? `${a}:${b}` : `${b}:${a}`;
+  }
+  return w >= h ? `${r.toFixed(2)}:1` : `1:${r.toFixed(2)}`;
 }
 
 function CropControls({ s }: { s: PrintState }) {

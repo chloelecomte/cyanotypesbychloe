@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { layoutBoxes, moveBox, refill, resizeBox, slidesOf, snapTargets, type Carousel } from './carousel';
+import { boxForPhoto, layoutBoxes, moveBox, refill, resizeBox, slidesOf, snapTargets, splitBox, type Carousel } from './carousel';
 
-const c: Carousel = { slides: 3, margin: 0.1, gap: 0.04, layout: 'bridge' };
+const c: Carousel = { slides: 3, margin: 0.1, gap: 0.04, layout: 'bridge', count: 7, seed: 3 };
 const close = (a: number, b: number) => expect(a).toBeCloseTo(b, 9);
 
 describe('layoutBoxes', () => {
@@ -47,5 +47,39 @@ describe('snapping', () => {
     const c2 = resizeBox({ x: 1, y: 0.1, w: 0.5, h: 0.8 }, 'se', 0.39, 0.095, t, 0.02, 0.02, 1);
     close(c2.x + c2.w, 1.9); // onto the right margin of slide 2
     close(c2.y + c2.h, 1); // onto the bottom edge
+  });
+});
+
+describe('mosaic', () => {
+  const area = (bs: { w: number; h: number }[], aspect: number) => bs.reduce((a, b) => a + b.w * b.h * aspect, 0);
+  it('tiles the strip with the asked-for number of tiles, without overlaps', () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const b = layoutBoxes('mosaic', { ...c, gap: 0, margin: 0, seed }, 1.25);
+      expect(b).toHaveLength(7);
+      expect(area(b, 1.25)).toBeCloseTo(3 * 1.25, 9); // gapless tiles fill all three slides exactly
+      for (const x of b) expect(x.w).toBeGreaterThan(0.1);
+    }
+  });
+  it('is the same for the same seed and changes with a shuffle', () => {
+    expect(layoutBoxes('mosaic', c, 1.25)).toEqual(layoutBoxes('mosaic', c, 1.25));
+    expect(layoutBoxes('mosaic', { ...c, seed: 4 }, 1.25)).not.toEqual(layoutBoxes('mosaic', c, 1.25));
+  });
+  it('crosses at least one seam', () => {
+    const b = layoutBoxes('mosaic', c, 1.25);
+    expect(b.some(x => slidesOf(x, 3).length > 1)).toBe(true);
+  });
+});
+
+describe('frame tools', () => {
+  it('splits a frame in two with the gap between', () => {
+    const [a, b] = splitBox({ x: 0, y: 0, w: 1, h: 1 }, 'v', 0.1, 1);
+    expect([a.w, b.x]).toEqual([0.45, 0.55]);
+    const [t, u] = splitBox({ x: 0, y: 0, w: 1, h: 1 }, 'h', 0.1, 2);
+    expect([t.h, u.y]).toEqual([0.475, 0.525]);
+  });
+  it('reshapes a frame to its photo, keeping height and center', () => {
+    const b = boxForPhoto({ x: 1, y: 0.1, w: 1, h: 0.8 }, 1.5, 1.25); // 0.8 slide heights = 1 slide width
+    expect(b.w).toBeCloseTo(1.5);
+    expect(b.x + b.w / 2).toBeCloseTo(1.5);
   });
 });
