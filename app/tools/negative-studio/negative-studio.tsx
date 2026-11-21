@@ -70,7 +70,7 @@ function useUndoShortcuts() {
   }, []);
 }
 
-/** Photos dropped anywhere on the window open in new tabs (but not while calibrating, where a scan is expected). */
+/** Photos dropped anywhere on the window open in new tabs. */
 function useDropToOpen(paused: boolean) {
   const { openFiles } = useStudio();
   const latest = useRef({ openFiles, paused });
@@ -79,7 +79,8 @@ function useDropToOpen(paused: boolean) {
     const over = (e: DragEvent) => e.preventDefault();
     const drop = (e: DragEvent) => {
       e.preventDefault();
-      if (latest.current.paused) return;
+      // Not while calibrating or editing a profile, where a scan is expected.
+      if (latest.current.paused || document.querySelector('[role="dialog"]')) return;
       latest.current.openFiles([...(e.dataTransfer?.files ?? [])].filter(f => f.type.startsWith('image/') || /\.(tiff?|heic)$/i.test(f.name)));
     };
     window.addEventListener('dragover', over);

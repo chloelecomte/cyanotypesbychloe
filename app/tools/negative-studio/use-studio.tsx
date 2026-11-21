@@ -16,7 +16,7 @@ import { deleteFile, loadSession, saveFile, saveSession, type StoredSession } fr
 import {
   curveFn, fitCurve as fitCurveFor, LINEAR, readingsToDarkness, responseFn as responseFor, toneFn as toneFor,
 } from '@/lib/negative-studio/pipeline';
-import type { NewCalibration, Repo } from '@/lib/negative-studio/repo';
+import type { NewCalibration, ProfileFields, Repo } from '@/lib/negative-studio/repo';
 import {
   DEFAULT_SETTINGS, mergeSettings, type Profile, type SavedCurve, type Settings, type StudioData, type StudioUser,
 } from '@/lib/negative-studio/types';
@@ -52,6 +52,7 @@ type State = {
 
 export type CalibrationTarget = { kind: 'new'; name: string | null; paper: string | null; lightSource: string | null; sensitizer: string | null; printerFilm: string | null; rinse: string | null; notes: string | null } | { kind: 'retest'; profileId: string };
 
+const toSeconds = (minutes: number | null) => minutes != null && isFinite(minutes) && minutes >= 0 ? Math.round(minutes * 60) : null;
 const calibrated = (profiles: Profile[], id: string) => id === 'model' ? null : profiles.find(p => p.id === id && p.calibration) ?? null;
 const refit = (s: Settings, profiles: Profile[]): Settings =>
   ({ ...s, curve: fitCurveFor(responseFor(calibrated(profiles, s.profile)?.calibration ?? null, s.model)), curveAuto: true });
@@ -276,7 +277,7 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
     edit('rotate', st => {
       const t = st.tabs.find(t => t.id === st.activeId); if (!t) return {};
       const rot = (t.rot + quarterTurns + 4) % 4, crop = fitAspect(null, st.settings.aspect, t.src, rot);
-      return { tabs: st.tabs.map(x => x === t ? { ...t, rot, crop } : x), cropDraft: st.cropDraft === undefined ? undefined : crop };
+      return { tabs: st.tabs.map(x => x === t ? { ...t, rot, crop } : x), cropDraft: st.cropDraft === undefined ? undefined : crop ?? fullCrop({ ...t, rot }, st.settings.aspect) };
     });
   }
   function flipPhoto() {
@@ -294,7 +295,12 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
       return { settings, tabs: st.tabs.map(x => x === t ? { ...t, crop: fitAspect(t.crop, aspect, t.src, t.rot) } : x) };
     });
   }
-  const startCrop = () => set(st => ({ cropDraft: st.tabs.find(t => t.id === st.activeId)?.crop ?? null }));
+  /** The largest crop the aspect ratio allows: where a new crop starts, so it can be shrunk from there. */
+  const fullCrop = (t: Tab, aspect: string): Crop => fitAspect(null, aspect, t.src, t.rot) ?? { x: 0, y: 0, w: 1, h: 1 };
+  const startCrop = () => set(st => {
+    const t = st.tabs.find(t => t.id === st.activeId);
+    return { cropDraft: t ? t.crop ?? fullCrop(t, st.settings.aspect) : null };
+  });
   function finishCrop() {
     edit('crop', st => st.cropDraft === undefined ? {} : {
       tabs: st.tabs.map(t => t.id === st.activeId ? { ...t, crop: st.cropDraft ?? null } : t), cropDraft: undefined,
@@ -303,8 +309,9 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
   function resetCrop() {
     edit('reset-crop', st => {
       const t = st.tabs.find(t => t.id === st.activeId); if (!t) return {};
+      if (st.cropDraft !== undefined) return { cropDraft: fullCrop(t, st.settings.aspect) };
       const c = fitAspect(null, st.settings.aspect, t.src, t.rot);
-      return st.cropDraft !== undefined ? { cropDraft: c } : { tabs: st.tabs.map(x => x === t ? { ...t, crop: c } : x) };
+      return { tabs: st.tabs.map(x => x === t ? { ...t, crop: c } : x) };
     });
   }
   const setCropDraft = (c: Crop | null) => set(() => ({ cropDraft: c }));
@@ -350,7 +357,7 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
 
   // ---------- Calibration ----------
   async function saveCalibration(target: CalibrationTarget, readings: Readings, exposureMinutes: number | null, conditions: string | null) {
-    const exposureSeconds = exposureMinutes != null && isFinite(exposureMinutes) && exposureMinutes >= 0 ? Math.round(exposureMinutes * 60) : null;
+    const exposureSeconds = toSeconds(exposureMinutes);
     const cal: NewCalibration = {
       darkness: readingsToDarkness(readings.L), colors: readings.colors,
       readingsLstar: readings.L.map(v => +v.toFixed(2)), exposureSeconds, conditions,
@@ -372,6 +379,29 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
       const profiles = st.profiles.some(p => p.id === u.id) ? st.profiles.map(p => p.id === u.id ? u : p) : [...st.profiles, u];
       const s = st.settings, curveByProfile = { ...s.curveByProfile, [s.profile]: { curve: s.curve, curveAuto: s.curveAuto } };
       return { profiles, settings: refit({ ...s, profile: u.id, curveByProfile }, profiles) };
+    });
+    return true;
+  }
+  /** Changes a profile's details and its active calibration in place. New readings (a fresh scan) replace the old ones. */
+  async function editProfile(id: string, fields: Omit<ProfileFields, 'exposureSeconds'>, readings: Readings | null, exposureMinutes: number | null, conditions: string | null) {
+    const p = profiles.find(p => p.id === id), old = p?.calibration;
+    if (!p || !old) return false;
+    const exposureSeconds = toSeconds(exposureMinutes);
+    const cal: NewCalibration = readings
+      ? { darkness: readingsToDarkness(readings.L), colors: readings.colors, readingsLstar: readings.L.map(v => +v.toFixed(2)), exposureSeconds, conditions }
+      : { darkness: old.darkness, colors: old.colors, readingsLstar: old.readingsLstar, exposureSeconds, conditions };
+    const c = await cloud('save the profile', async () => {
+      await repo.updateProfile(id, { ...fields, exposureSeconds });
+      return repo.updateCalibration(old.id, cal, !!readings);
+    });
+    if (!c) return false;
+    const u: Profile = { ...p, ...fields, exposureSeconds, calibration: c };
+    set(st => {
+      const profiles = st.profiles.map(p => p.id === id ? u : p);
+      // New readings change the response, so refit the curve unless it was tuned by hand.
+      const s = st.settings;
+      if (!readings || s.profile !== id || !s.curveAuto) return { profiles };
+      return { profiles, settings: refit(s, profiles) };
     });
     return true;
   }
@@ -456,7 +486,7 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
     openFiles, activate: (id: number) => set(st => id === st.activeId ? {} : activateState(st, id)), closeTab, renameTab,
     rotate, flipPhoto, setAspect, startCrop, finishCrop, resetCrop, setCropDraft,
     fitCurve, linearCurve, setCurvePoints, setModel, selectProfile, exportAcv, importCurve, loadSavedCurve, saveCurve, deleteCurve,
-    saveCalibration, deleteProfile,
+    saveCalibration, editProfile, deleteProfile,
   };
 }
 

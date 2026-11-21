@@ -16,6 +16,7 @@ import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSepa
 import { buildNegative, download, negativeName, pngWithDpi, printDims, printInWindow } from '@/lib/negative-studio/output';
 import { DEFAULT_SETTINGS, type Settings } from '@/lib/negative-studio/types';
 import { cn } from '@/lib/utils';
+import { EditProfileDialog } from './calibration-dialog';
 import { BusyButton, Field, HelpTip, NumberField, SliderRow, SubHeading, Tip, useBusy } from './controls';
 import { CurveEditor } from './curve-editor';
 import { useStudio } from './use-studio';
@@ -178,6 +179,7 @@ function CurveStep() {
   const [savedId, setSavedId] = useState('');
   const curveFile = useRef<HTMLInputElement>(null);
   const [madeForPositive, setMadeForPositive] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const meta = (() => {
     if (!profile?.calibration) return '';
@@ -208,7 +210,11 @@ function CurveStep() {
           </SelectContent>
         </Select>
       </Field>
-      {meta && <Tip className="mt-1.5">{meta}</Tip>}
+      {meta && <Tip className="mt-1.5">
+        {meta}{' · '}
+        <button type="button" className="underline underline-offset-2 hover:text-foreground" onClick={() => setEditing(true)}>Edit</button>
+      </Tip>}
+      {profile && <EditProfileDialog profile={profile} open={editing} onOpenChange={setEditing} />}
       {profile?.calibration && profile.notes && <Tip className="mt-1 whitespace-pre-line">{profile.notes}</Tip>}
       {settings.profile === 'model' && (
         <div className="mt-3">

@@ -13,6 +13,8 @@ export default function SiteLayout({ children }: { children: React.ReactNode }) 
         </section>
         <nav>
           <Link href="/tools/negative-studio">Negative Studio</Link>
+          <Link href="/tools/post-studio">Post Studio</Link>
+          <Link href="/tools/print-studio">Print Studio</Link>
           <a href={INSTAGRAM} className="social-link">
             <InstagramIcon title="Instagram logo, link to @cyanotypes.by.chloe" />
           </a>

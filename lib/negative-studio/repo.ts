@@ -101,6 +101,32 @@ export function createRepo(db: DB, userId: string) {
       return toCalibration(check(await db.from('calibrations').insert(calibrationInsert(profileId, cal)).select().single()));
     },
 
+    async updateProfile(id: string, fields: ProfileFields) {
+      const { error } = await db.from('process_profiles').update({
+        name: fields.name,
+        paper: fields.paper,
+        light_source: fields.lightSource,
+        sensitizer: fields.sensitizer,
+        exposure_seconds: fields.exposureSeconds,
+        printer_film: fields.printerFilm,
+        rinse: fields.rinse,
+        notes: fields.notes,
+      }).eq('id', id);
+      if (error) throw new Error(error.message);
+    },
+
+    /** Changes a calibration in place (no new history entry). New readings also reset its date. */
+    async updateCalibration(id: string, cal: NewCalibration, remeasured: boolean): Promise<Calibration> {
+      return toCalibration(check(await db.from('calibrations').update({
+        darkness: cal.darkness,
+        colors: cal.colors as Json,
+        readings_lstar: cal.readingsLstar,
+        exposure_seconds: cal.exposureSeconds,
+        conditions: cal.conditions,
+        ...remeasured && { measured_at: new Date().toISOString() },
+      }).eq('id', id).select().single()));
+    },
+
     async deleteProfile(id: string) {
       const { error } = await db.from('process_profiles').delete().eq('id', id);
       if (error) throw new Error(error.message);

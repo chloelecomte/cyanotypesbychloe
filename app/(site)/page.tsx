@@ -24,6 +24,20 @@ export default function Home() {
         <p>
           <Link className="button-link" href="/tools/negative-studio">Open Negative Studio</Link>
         </p>
+        <p>
+          <b>Post Studio</b> makes Instagram posts: a photo of any shape centered on a white border, a simple
+          collage of several photos, or a carousel with photos that run from one slide onto the next.
+        </p>
+        <p>
+          <Link className="button-link" href="/tools/post-studio">Open Post Studio</Link>
+        </p>
+        <p>
+          <b>Print Studio</b> splits a photo across prints that hang together, like a triptych, and saves a
+          full-resolution file for each one to send to a print lab.
+        </p>
+        <p>
+          <Link className="button-link" href="/tools/print-studio">Open Print Studio</Link>
+        </p>
       </section>
     </>
   );
