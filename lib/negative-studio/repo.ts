@@ -3,12 +3,27 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '@/lib/supabase/database.types';
 import type { Pt, RGB } from './math';
-import type { Calibration, Profile, SavedCurve, Settings, StudioData } from './types';
+import { parseRecipe, photoFileName, type NegativeRecipe } from './negatives';
+import type { Calibration, Profile, SavedCurve, SavedNegative, Settings, StudioData } from './types';
 
 type DB = SupabaseClient<Database>;
 type ProfileRow = Database['public']['Tables']['process_profiles']['Row'];
 type CalibrationRow = Database['public']['Tables']['calibrations']['Row'];
 type CurveRow = Database['public']['Tables']['curves']['Row'];
+type NegativeRow = Database['public']['Tables']['negatives']['Row'];
+
+const BUCKET = 'negatives';
+const toNegative = (r: NegativeRow): SavedNegative => ({
+  id: r.id, name: r.name, recipe: parseRecipe(r.recipe), profileId: r.profile_id, photoPath: r.photo_path,
+  info: r.photo_info, thumbnail: r.thumbnail, createdAt: r.created_at, updatedAt: r.updated_at,
+});
+/** What a negative is saved with besides its photo. */
+export type NegativeFields = { name: string; recipe: NegativeRecipe; info: string | null; thumbnail: string | null };
+const negativeColumns = (f: NegativeFields) => ({
+  name: f.name.slice(0, 200), recipe: f.recipe as unknown as Json, photo_info: f.info, thumbnail: f.thumbnail,
+  // Only a real profile id can be referenced; the generic model is kept in the recipe.
+  profile_id: f.recipe.profile === 'model' ? null : f.recipe.profile,
+});
 
 export type ProfileFields = Pick<Profile, 'name' | 'paper' | 'lightSource' | 'sensitizer' | 'exposureSeconds' | 'printerFilm' | 'rinse' | 'notes'>;
 export type NewCalibration = Omit<Calibration, 'id' | 'measuredAt'>;
@@ -143,6 +158,42 @@ export function createRepo(db: DB, userId: string) {
     async deleteCurve(id: string) {
       const { error } = await db.from('curves').delete().eq('id', id);
       if (error) throw new Error(error.message);
+    },
+
+    // ---------- Saved negatives ----------
+    async listNegatives(): Promise<SavedNegative[]> {
+      return check(await db.from('negatives').select('*').order('updated_at', { ascending: false })).map(toNegative);
+    },
+
+    /** Uploads the original photo, then records the negative. */
+    async createNegative(fields: NegativeFields, photo: Blob, photoName: string): Promise<SavedNegative> {
+      const id = crypto.randomUUID(), path = `${userId}/${id}/${photoFileName(photo, photoName)}`;
+      const up = await db.storage.from(BUCKET).upload(path, photo, { contentType: photo.type || undefined, upsert: false });
+      if (up.error) throw new Error(/exceed|too large|size/i.test(up.error.message) ? 'The photo is larger than 50 MB, the most the account can store.' : up.error.message);
+      const res = await db.from('negatives').insert({ id, photo_path: path, ...negativeColumns(fields) }).select().single();
+      if (res.error) { await db.storage.from(BUCKET).remove([path]); throw new Error(res.error.message); }
+      return toNegative(check(res));
+    },
+
+    async updateNegative(id: string, fields: NegativeFields): Promise<SavedNegative> {
+      // A profile deleted since is simply left out.
+      const cols = negativeColumns(fields);
+      let res = await db.from('negatives').update(cols).eq('id', id).select().single();
+      if (res.error && cols.profile_id) res = await db.from('negatives').update({ ...cols, profile_id: null }).eq('id', id).select().single();
+      return toNegative(check(res));
+    },
+
+    async downloadNegativePhoto(path: string): Promise<Blob> {
+      const { data, error } = await db.storage.from(BUCKET).download(path);
+      if (error) throw new Error(error.message);
+      return data;
+    },
+
+    async deleteNegative(n: SavedNegative) {
+      const { error } = await db.from('negatives').delete().eq('id', n.id);
+      if (error) throw new Error(error.message);
+      // The row is gone, so a photo left behind is only wasted space.
+      await db.storage.from(BUCKET).remove([n.photoPath]);
     },
   };
 }

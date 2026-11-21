@@ -106,6 +106,42 @@ export type Database = {
           },
         ];
       };
+      negatives: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          recipe: Json;
+          profile_id: string | null;
+          photo_path: string;
+          photo_info: string | null;
+          thumbnail: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id?: string;
+          name: string;
+          recipe: Json;
+          profile_id?: string | null;
+          photo_path: string;
+          photo_info?: string | null;
+          thumbnail?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Database['public']['Tables']['negatives']['Insert']>;
+        Relationships: [
+          {
+            foreignKeyName: 'negatives_profile_id_fkey';
+            columns: ['profile_id'];
+            isOneToOne: false;
+            referencedRelation: 'process_profiles';
+            referencedColumns: ['id'];
+          },
+        ];
+      };
       user_settings: {
         Row: { user_id: string; settings: Json; updated_at: string };
         Insert: { user_id?: string; settings?: Json; updated_at?: string };

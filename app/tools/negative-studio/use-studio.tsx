@@ -1,8 +1,9 @@
 'use client';
 
 // All of the studio's state, and every change to it. Components read it through useStudio().
-// Image processing stays in the browser; photos are never uploaded. Only settings, profiles and
-// curves go to Supabase through `repo`. Open photos are kept in this browser by `photo-store`.
+// Image processing stays in the browser. Settings, profiles and curves go to Supabase through
+// `repo`; a photo is uploaded only when it's saved as a negative to the library. Open photos are
+// kept in this browser by `photo-store`.
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { Autosaver, type SaveStatus } from '@/lib/negative-studio/autosave';
@@ -11,21 +12,22 @@ import {
 } from '@/lib/negative-studio/canvas';
 import { decodeAcv, encodeAcv, normalizeImportedCurve, parseLutText } from '@/lib/negative-studio/files';
 import type { Pt, RGB } from '@/lib/negative-studio/math';
-import { download, type Photo } from '@/lib/negative-studio/output';
+import {
+  buildProjectFile, photoSettings, PROJECT_SUFFIX, readProjectFile, recipeKey, recipeOf, safeFileName,
+  type NegativeRecipe, type PhotoSettings,
+} from '@/lib/negative-studio/negatives';
+import { cyanotypePreview, download, jpeg, type Photo } from '@/lib/negative-studio/output';
 import { deleteFile, loadSession, saveFile, saveSession, type StoredSession } from '@/lib/negative-studio/photo-store';
 import {
   curveFn, fitCurve as fitCurveFor, LINEAR, readingsToDarkness, responseFn as responseFor, toneFn as toneFor,
 } from '@/lib/negative-studio/pipeline';
 import type { NewCalibration, ProfileFields, Repo } from '@/lib/negative-studio/repo';
 import {
-  DEFAULT_SETTINGS, mergeSettings, type Profile, type SavedCurve, type Settings, type StudioData, type StudioUser,
+  DEFAULT_SETTINGS, mergeSettings, type Profile, type SavedCurve, type SavedNegative, type Settings, type StudioData, type StudioUser,
 } from '@/lib/negative-studio/types';
 import { useConfirm } from './confirm';
 
-// The photo keys of `settings` belong to the active tab; the other tabs keep their own copy.
-const PHOTO_KEYS = ['aspect', 'bw', 'tone', 'curve', 'curveAuto', 'print'] as const;
-type PhotoSettings = Pick<Settings, typeof PHOTO_KEYS[number]>;
-const photoSettings = (s: Settings) => structuredClone(Object.fromEntries(PHOTO_KEYS.map(k => [k, s[k]]))) as PhotoSettings;
+// The photo keys of `settings` (PHOTO_KEYS) belong to the active tab; the other tabs keep their own copy.
 
 /** A point to go back to: the editor settings and how the photo is turned and cropped. */
 type Snapshot = { settings: Settings; photo: Pick<Photo, 'rot' | 'flip' | 'crop'> | null };
@@ -34,8 +36,15 @@ type History = { past: Snapshot[]; future: Snapshot[]; key: string; at: number }
 const NO_HISTORY: History = { past: [], future: [], key: '', at: 0 };
 const HISTORY_LIMIT = 100, COALESCE_MS = 1000;
 
-/** `key` names the tab's file in the browser's photo store; `id` only lasts until the page is reloaded. */
-export type Tab = Photo & { id: number; key: string; name: string; info: string; settings: PhotoSettings; history: History };
+/** Which library negative a tab is, and its recipe when it was last saved (to spot unsaved changes). */
+export type SavedLink = { id: string; key: string };
+/**
+ * `key` names the tab's file in the browser's photo store; `id` only lasts until the page is reloaded.
+ * `file` is the original photo, as opened.
+ */
+export type Tab = Photo & {
+  id: number; key: string; name: string; info: string; file: Blob; settings: PhotoSettings; history: History; saved: SavedLink | null;
+};
 
 type State = {
   settings: Settings;
@@ -86,6 +95,8 @@ function photoName(file: File, id: number) {
   return base && !PLACEHOLDER_NAME.test(base) ? base : `Photo ${id}`;
 }
 
+export const isProjectFile = (f: File) => /\.zip$/i.test(f.name) || f.type === 'application/zip';
+
 async function decode(file: Blob): Promise<Source> {
   try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); }
   catch {
@@ -95,7 +106,7 @@ async function decode(file: Blob): Promise<Source> {
 
 /** What the browser keeps of the open photos: everything but the pixels and the undo history. */
 function storedSession(st: State): StoredSession {
-  const tabs = stash(st).map(({ key, name, info, rot, flip, crop, settings }) => ({ key, name, info, rot, flip, crop, settings }));
+  const tabs = stash(st).map(({ key, name, info, rot, flip, crop, settings, saved }) => ({ key, name, info, rot, flip, crop, settings, saved }));
   return { tabs, activeKey: st.tabs.find(t => t.id === st.activeId)?.key ?? null };
 }
 
@@ -181,27 +192,38 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
   const hist = useMemo(() => gidx && histogram(gidx, tone), [gidx, tone]);
 
   // ---------- Photo tabs ----------
+  /**
+   * Opens a photo in a new tab after the current one. A new photo starts from the default edits;
+   * a saved negative or project file brings its recipe.
+   */
+  function addTab(file: Blob, img: Source, opts: { name: (id: number) => string; info: string; recipe?: NegativeRecipe; saved?: SavedLink | null }) {
+    const key = crypto.randomUUID();
+    saveFile(user.id, key, file).catch(storageFailed);
+    set(st => {
+      const tabs = stash(st), at = st.activeId != null ? tabs.findIndex(t => t.id === st.activeId) + 1 : tabs.length;
+      const r = opts.recipe;
+      // A saved negative keeps its own curve; the preview uses the profile it was made with, if it still exists.
+      const settings = r
+        ? { ...st.settings, ...structuredClone(r.settings), model: r.model, profile: calibrated(st.profiles, r.profile) ? r.profile : 'model' }
+        : newPhotoSettings(st);
+      const tab: Tab = {
+        id: st.nextId, key, src: img, file, name: opts.name(st.nextId), info: opts.info,
+        rot: r?.rot ?? 0, flip: r?.flip ?? false, crop: r?.crop ?? null, settings: photoSettings(settings), history: NO_HISTORY, saved: opts.saved ?? null,
+      };
+      return { tabs: [...tabs.slice(0, at), tab, ...tabs.slice(at)], activeId: tab.id, nextId: st.nextId + 1, settings, cropDraft: undefined, history: NO_HISTORY };
+    });
+  }
   async function loadFile(file: File) {
     let img: Source;
     try { img = await decode(file); } catch {
       toast.error(`${file.name || 'This file'} couldn't be opened`, { description: 'Try exporting it as a JPEG, PNG or TIFF (TIFF works in Safari).' });
       return;
     }
-    const key = crypto.randomUUID();
-    saveFile(user.id, key, file).catch(storageFailed);
-    // A new photo starts from the default edits, and opens after the current tab.
-    set(st => {
-      const tabs = stash(st), at = st.activeId != null ? tabs.findIndex(t => t.id === st.activeId) + 1 : tabs.length;
-      const settings = newPhotoSettings(st);
-      const tab: Tab = {
-        id: st.nextId, key, src: img, name: photoName(file, st.nextId), info: `${file.name || 'Pasted image'} · ${img.width} × ${img.height} px`,
-        rot: 0, flip: false, crop: null, settings: photoSettings(settings), history: NO_HISTORY,
-      };
-      return { tabs: [...tabs.slice(0, at), tab, ...tabs.slice(at)], activeId: tab.id, nextId: st.nextId + 1, settings, cropDraft: undefined, history: NO_HISTORY };
-    });
+    addTab(file, img, { name: id => photoName(file, id), info: `${file.name || 'Pasted image'} · ${img.width} × ${img.height} px` });
   }
+  /** Photos open in new tabs; project files (.zip) open with their edits. */
   async function openFiles(files: File[]) {
-    for (const f of files) await loadFile(f);
+    for (const f of files) await (isProjectFile(f) ? importProject(f) : loadFile(f));
   }
   function closeTab(id: number) {
     const tab = tabs.find(t => t.id === id);
@@ -238,7 +260,8 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
         if (!saved || cancelled) return;
         const restored: Omit<Tab, 'id'>[] = [];
         for (const t of saved.session.tabs) {
-          try { restored.push({ ...t, src: await decode(saved.files.get(t.key)!), settings: t.settings as PhotoSettings, history: NO_HISTORY }); }
+          const file = saved.files.get(t.key)!;
+          try { restored.push({ ...t, src: await decode(file), file, settings: t.settings as PhotoSettings, history: NO_HISTORY, saved: t.saved ?? null }); }
           catch { /* a file the browser can no longer open */ }
         }
         if (cancelled) { for (const t of restored) if ('close' in t.src) t.src.close(); return; }
@@ -271,6 +294,89 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
     window.addEventListener('pagehide', now);
     return () => { document.removeEventListener('visibilitychange', now); window.removeEventListener('pagehide', now); };
   }, [restoring, user.id]);
+
+  // ---------- Saved negatives (the library) and project files ----------
+  const [negatives, setNegatives] = useState<SavedNegative[] | null>(null);
+  const [negativesError, setNegativesError] = useState<string | null>(null);
+  async function loadNegatives() {
+    setNegativesError(null);
+    try { setNegatives(await repo.listNegatives()); }
+    catch (e) { setNegativesError((e as Error).message); }
+  }
+  const activeRecipe = useMemo(() => active ? recipeOf({ rot, flip, crop }, settings) : null, [active, rot, flip, crop, settings]);
+  /** The active tab is a saved negative with changes since it was saved. */
+  const unsaved = !!(active?.saved && activeRecipe && recipeKey(active.name, activeRecipe) !== active.saved.key);
+  const profileName = (id: string) => id === 'model' ? null : profiles.find(p => p.id === id)?.name ?? null;
+
+  /** A small picture of the simulated print, for the library. */
+  async function thumbnail(t: Tab) {
+    try {
+      const blob = await jpeg(cyanotypePreview(t, settings.bw, luts.cyan, 360), 0.8);
+      return await new Promise<string>((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result)); r.onerror = rej; r.readAsDataURL(blob); });
+    } catch { return null; }
+  }
+  /** Saves the active photo to the library, or updates it if it's already there. */
+  async function saveNegative() {
+    const t = active, recipe = activeRecipe;
+    if (!t || !recipe) { toast('Open a photo first.'); return false; }
+    const fields = { name: t.name, recipe, info: t.info, thumbnail: await thumbnail(t) };
+    const firstSave = !t.saved;
+    const n = await cloud('save the negative', () => t.saved
+      ? repo.updateNegative(t.saved.id, fields)
+      : repo.createNegative(fields, t.file, t.info.split(' · ')[0]));
+    if (!n) return false;
+    const link = { id: n.id, key: recipeKey(fields.name, recipe) };
+    set(st => ({ tabs: st.tabs.map(x => x.key === t.key ? { ...x, saved: link } : x) }));
+    setNegatives(list => list && [n, ...list.filter(x => x.id !== n.id)]);
+    toast.success(firstSave ? `Saved “${n.name}” to your negatives` : `Updated “${n.name}”`);
+    return true;
+  }
+  /** Opens a library negative in a new tab, or switches to it if it's already open. */
+  async function openNegative(n: SavedNegative) {
+    const open = st.tabs.find(t => t.saved?.id === n.id);
+    if (open) { set(st => open.id === st.activeId ? {} : activateState(st, open.id)); return true; }
+    let file: Blob, img: Source;
+    try { file = await repo.downloadNegativePhoto(n.photoPath); img = await decode(file); }
+    catch (e) { toast.error(`Couldn't open “${n.name}”`, { description: (e as Error).message }); return false; }
+    addTab(file, img, { name: () => n.name, info: n.info ?? `${img.width} × ${img.height} px`, recipe: n.recipe, saved: { id: n.id, key: recipeKey(n.name, n.recipe) } });
+    return true;
+  }
+  async function deleteNegative(n: SavedNegative) {
+    if (!await confirm({
+      title: `Delete “${n.name}” from your negatives?`, action: 'Delete', destructive: true,
+      description: 'Its photo and edits are removed from your account. This can’t be undone. Tabs where it’s open stay open.',
+    })) return false;
+    if (!await cloud('delete the negative', () => repo.deleteNegative(n).then(() => true))) return false;
+    setNegatives(list => list && list.filter(x => x.id !== n.id));
+    set(st => ({ tabs: st.tabs.map(t => t.saved?.id === n.id ? { ...t, saved: null } : t) }));
+    return true;
+  }
+  /** Downloads a project file (.zip with the original photo and its edits) for the active tab. */
+  async function exportProject() {
+    const t = active, recipe = activeRecipe;
+    if (!t || !recipe) { toast('Open a photo first.'); return; }
+    try {
+      const blob = await buildProjectFile({ name: t.name, recipe, photo: t.file, photoName: t.info.split(' · ')[0], info: t.info, profileName: profileName(recipe.profile) });
+      download(blob, safeFileName(t.name) + PROJECT_SUFFIX);
+    } catch (e) { toast.error("Couldn't make the project file", { description: (e as Error).message }); }
+  }
+  /** The same, for a library negative that may not be open. */
+  async function exportSavedNegative(n: SavedNegative) {
+    try {
+      const photo = await repo.downloadNegativePhoto(n.photoPath);
+      const blob = await buildProjectFile({ name: n.name, recipe: n.recipe, photo, photoName: n.photoPath.split('/').pop()!, info: n.info, profileName: profileName(n.recipe.profile) });
+      download(blob, safeFileName(n.name) + PROJECT_SUFFIX);
+    } catch (e) { toast.error("Couldn't make the project file", { description: (e as Error).message }); }
+  }
+  async function importProject(file: File) {
+    try {
+      const p = await readProjectFile(file), img = await decode(p.photo);
+      addTab(p.photo, img, { name: () => p.name, info: p.info ?? `${p.photoName} · ${img.width} × ${img.height} px`, recipe: p.recipe });
+      if (p.recipe.profile !== 'model' && !calibrated(profiles, p.recipe.profile)) {
+        toast(`“${p.name}” opened with its own curve`, { description: `It was made with ${p.profileName ? `the profile “${p.profileName}”` : 'a profile'} that isn't in your account, so the preview uses the generic model.` });
+      }
+    } catch (e) { toast.error(`${file.name} couldn't be opened`, { description: (e as Error).message }); }
+  }
 
   // ---------- Crop & orientation ----------
   function rotate(quarterTurns: 1 | -1) {
@@ -487,6 +593,7 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
     rotate, flipPhoto, setAspect, startCrop, finishCrop, resetCrop, setCropDraft,
     fitCurve, linearCurve, setCurvePoints, setModel, selectProfile, exportAcv, importCurve, loadSavedCurve, saveCurve, deleteCurve,
     saveCalibration, editProfile, deleteProfile,
+    negatives, negativesError, loadNegatives, unsaved, saveNegative, openNegative, deleteNegative, exportProject, exportSavedNegative, profileName,
   };
 }
 

@@ -2,7 +2,7 @@
 
 // The right-hand side: photo tabs, view switcher, the preview and the tone strip.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Download, ImageIcon, Plus, Redo2, Undo2, X } from 'lucide-react';
+import { Check, CloudCheck, CloudUpload, Download, FileArchive, ImageIcon, Plus, Redo2, Undo2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { aspectValue, drawStrip, predictedDistinct, renderCrop, renderView, type Crop } from '@/lib/negative-studio/canvas';
@@ -26,7 +26,7 @@ export function Workspace() {
 }
 
 function PhotoTabs() {
-  const { tabs, active, activate, closeTab, renameTab } = useStudio();
+  const { tabs, active, activate, closeTab, renameTab, unsaved } = useStudio();
   const [picker, pick] = usePhotoPicker();
   const [editing, setEditing] = useState<number | null>(null);
   const activeRef = useRef<HTMLDivElement>(null);
@@ -50,6 +50,9 @@ function PhotoTabs() {
             {editing === t.id
               ? <TabNameInput name={t.name} onDone={name => { if (name) renameTab(t.id, name); setEditing(null); }} />
               : <span className="truncate">{t.name}</span>}
+            {t.saved && (on && unsaved
+              ? <span className="size-1.5 shrink-0 rounded-full bg-warning" title="Changes not saved to My negatives" />
+              : <CloudCheck className="size-3.5 shrink-0 opacity-50" aria-label="Saved to My negatives" />)}
             <button
               type="button" aria-label={`Close ${t.name}`} title="Close this photo"
               onClick={e => { e.stopPropagation(); closeTab(t.id); }}
@@ -81,9 +84,9 @@ function TabNameInput({ name, onDone }: { name: string; onDone: (name: string | 
 const VIEWS: [View, string][] = [['orig', 'Original'], ['bw', 'B&W'], ['neg', 'Negative'], ['cyan', 'Cyanotype'], ['compare', 'Compare']];
 
 function ViewBar() {
-  const { settings, setView, active, luts, canUndo, canRedo, undo, redo } = useStudio();
+  const { settings, setView, active, luts, canUndo, canRedo, undo, redo, unsaved, saveNegative, exportProject } = useStudio();
   const { wIn, hIn } = printDims(settings.print, active);
-  const [saving, run] = useBusy();
+  const [saving, run] = useBusy(), [storing, runStore] = useBusy(), [exporting, runExport] = useBusy();
   const mod = typeof navigator !== 'undefined' && /Mac|iP/.test(navigator.platform) ? '⌘' : 'Ctrl+';
   function savePreview() {
     if (!active) return;
@@ -102,6 +105,14 @@ function ViewBar() {
         <span className="ml-auto truncate text-xs text-muted-foreground">{active.name} · prints {wIn.toFixed(1)} × {hIn.toFixed(1)} in</span>
         <BusyButton busy={saving} icon={<Download />} variant="outline" size="sm" onClick={savePreview}
           title="Save the simulated cyanotype print as a JPEG, for reference">Save preview</BusyButton>
+        <IconButton label="Download a project file (the original photo and its edits)" size="icon-sm" variant="outline" disabled={exporting}
+          onClick={() => runExport(exportProject)}><FileArchive /></IconButton>
+        <BusyButton
+          busy={storing} icon={active.saved && !unsaved ? <CloudCheck /> : <CloudUpload />} size="sm"
+          variant={active.saved && !unsaved ? 'outline' : 'default'} disabled={!!active.saved && !unsaved}
+          onClick={() => runStore(async () => { await saveNegative(); })}
+          title={`Keep the photo and its edits in My negatives, to come back to or print at another size (${mod}S)`}
+        >{!active.saved ? 'Save negative' : unsaved ? 'Save changes' : 'Saved'}</BusyButton>
       </>}
     </div>
   );

@@ -1,5 +1,5 @@
 // Keeps the open photos in this browser (IndexedDB), so a reload or a closed tab doesn't lose them.
-// Photos stay on this computer: nothing here is uploaded.
+// Nothing here is uploaded; saving a negative to the library is separate.
 import type { Crop } from './canvas';
 import type { Settings } from './types';
 
@@ -9,6 +9,8 @@ const DB_NAME = 'negative-studio', DB_VERSION = 1;
 export type StoredTab = {
   key: string; name: string; info: string; rot: number; flip: boolean; crop: Crop | null;
   settings: Partial<Settings>;
+  /** The library negative this photo is, if it was saved there. */
+  saved?: { id: string; key: string } | null;
 };
 /** The open photos of one user, in tab order. */
 export type StoredSession = { tabs: StoredTab[]; activeKey: string | null };

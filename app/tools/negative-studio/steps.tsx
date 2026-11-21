@@ -49,9 +49,9 @@ function Step({ value, n, title, children }: { value: string; n: number; title: 
   );
 }
 
-const IMAGE_TYPES = 'image/*,.tif,.tiff,.heic';
+const IMAGE_TYPES = 'image/*,.tif,.tiff,.heic,.zip';
 
-/** Opens the photo picker. Every chosen photo gets its own tab. */
+/** Opens the photo picker. Every chosen photo (or negative project file) gets its own tab. */
 export function usePhotoPicker() {
   const { openFiles } = useStudio();
   const input = useRef<HTMLInputElement>(null);
