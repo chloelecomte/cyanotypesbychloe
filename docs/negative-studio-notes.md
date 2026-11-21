@@ -25,7 +25,10 @@ dependencies and no backend.
 7. **Calibrate**: print a full-page calibration sheet (Letter or A4, up to 6 bands, one per
    exposure time, each with a linear and a current-curve tablet; a card slides down the
    marked lines to stop each band), or a single linear strip. Scan the result, click
-   patch 1 and patch 21, and the app samples all 21 patches. Readings can also be typed.
+   patch 1 and patch 21, and the app samples all 21 patches. On a whole sheet, clicking
+   patch 1 of the first band and patch 21 of the last places every band, and the app
+   suggests the standard printing time: the shortest band whose patches 19–21 reach the
+   sheet's deepest blue. Readings can also be typed.
    The result is saved as a named process profile.
 
 ### Image pipeline (all client-side, per pixel via lookup tables)

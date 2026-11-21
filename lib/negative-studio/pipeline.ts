@@ -93,6 +93,29 @@ export function readingsToDarkness(L: number[]) {
   return L.map(v => (run = Math.max(run, (mx - v) / ((mx - mn) || 1)), +run.toFixed(4)));
 }
 
+export type BandStats = { minutes: number; light: number; dark: number; atDmax: boolean; tinted: boolean };
+/**
+ * The standard printing time from a calibration sheet's linear rows (L*, lightest → darkest, bands shortest → longest):
+ * the shortest band whose clearest patches (19–21) are as dark as the deepest blue on the sheet.
+ * `pick` is −1 when the rows don't look like tablets (wrong times or film size, or a mis-click).
+ */
+export function suggestExposure(bands: { minutes: number; L: number[] }[]) {
+  const mean = (a: number[]) => a.reduce((s, v) => s + v, 0) / a.length;
+  const raw = bands.map(b => ({ minutes: b.minutes, light: mean(b.L.slice(0, 2)), dark: mean(b.L.slice(18)) }));
+  const paper = Math.max(...raw.map(b => b.light)), dmax = Math.min(...raw.map(b => b.dark)), range = paper - dmax;
+  // Within 2% of the sheet's tonal range counts as "as dark": about scan noise, and well below a visible step
+  const rows: BandStats[] = raw.map(b => ({ ...b, atDmax: b.dark - dmax <= 0.02 * range, tinted: paper - b.light > 0.04 * range }));
+  const readable = range >= 10 && rows.every(b => b.light - b.dark > 0.5 * range);
+  const pick = readable ? rows.findIndex(b => b.atDmax) : -1, n = rows.length;
+  return {
+    rows, pick,
+    /** Only the longest band got there, so it may still darken with more time. */
+    tryLonger: pick > 0 && pick === n - 1,
+    /** Even the shortest band got there, so a shorter time might too. */
+    tryShorter: pick === 0 && n > 1,
+  };
+}
+
 /** Number of visibly different neighbouring steps in a 21-step scale. */
 export function countDistinct(values: number[], threshold = 0.015) {
   let distinct = 1;

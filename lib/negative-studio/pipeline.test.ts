@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { monotone, lstar } from './math';
-import { countDistinct, curveFn, fitCurve, gradientStops, GENERIC_GRADIENT, readingsToDarkness, responseFn, toneFn } from './pipeline';
+import { countDistinct, curveFn, fitCurve, gradientStops, GENERIC_GRADIENT, readingsToDarkness, responseFn, suggestExposure, toneFn } from './pipeline';
+import { sheetGrid } from './canvas';
+import { sheetLinearPatches } from './output';
 import { crc32, decodeAcv, encodeAcv, normalizeImportedCurve, parseLutText, withPhys } from './files';
 import { DEFAULT_SETTINGS, mergeSettings } from './types';
 import { safeNext } from '@/lib/safe-next';
@@ -50,6 +52,62 @@ describe('calibration readings', () => {
 
   it('falls back to the generic gradient without scanned colours', () => {
     expect(gradientStops({ darkness: new Array(21).fill(0), colors: null })).toBe(GENERIC_GRADIENT);
+  });
+});
+
+describe('exposure suggestion', () => {
+  // A linear row: paper white for the first `start` patches, then down to `dark` (L*)
+  const row = (dark: number, start = 4, paper = 90) =>
+    Array.from({ length: 21 }, (_, i) => i < start ? paper : Math.max(dark, paper - (i - start + 1) * 12));
+  const sheet = (darks: number[], paper?: number[]) => darks.map((d, i) => ({ minutes: 5 + i, L: row(d, 4, paper?.[i]) }));
+
+  it('picks the shortest band that reaches the deepest blue', () => {
+    const s = suggestExposure(sheet([26, 20, 19.6, 19.9]));
+    expect(s.pick).toBe(1);
+    expect(s.rows.map(r => r.atDmax)).toEqual([false, true, true, true]);
+    expect(s.tryLonger).toBe(false);
+    expect(s.tryShorter).toBe(false);
+  });
+
+  it('asks for longer times when only the longest band gets there', () => {
+    const s = suggestExposure(sheet([30, 26, 23, 20]));
+    expect(s.pick).toBe(3);
+    expect(s.tryLonger).toBe(true);
+  });
+
+  it('asks for shorter times when every band gets there', () => {
+    const s = suggestExposure(sheet([20, 20.2, 19.9]));
+    expect(s.pick).toBe(0);
+    expect(s.tryShorter).toBe(true);
+  });
+
+  it('flags tinted highlights', () => {
+    expect(suggestExposure(sheet([24, 20, 20], [90, 90, 84])).rows.map(r => r.tinted)).toEqual([false, false, true]);
+  });
+
+  it('gives no suggestion when the rows are not tablets', () => {
+    expect(suggestExposure([{ minutes: 5, L: new Array(21).fill(50) }, { minutes: 6, L: new Array(21).fill(52) }]).pick).toBe(-1);
+  });
+});
+
+describe('calibration sheet geometry', () => {
+  it('places every band from two clicks on a scaled scan', () => {
+    // A US Letter sheet with 4 bands, scanned at about 0.58× of 300 dpi: patch 1 of band A and patch 21 of band D
+    const grid = sheetGrid([{ x: 103, y: 340 }, { x: 1325, y: 1562 }], sheetLinearPatches(4, 'letter'));
+    expect(grid.rows).toHaveLength(4);
+    expect(grid.rows[1][0].y).toBeCloseTo(747, -1);
+    expect(grid.rows[2][0].y).toBeCloseTo(1155, -1);
+    expect(grid.rows[1][9].x).toBeCloseTo(653, -1);
+    expect(grid.rows[3][20]).toEqual({ x: 1325, y: 1562 });
+  });
+
+  it('follows a rotated scan', () => {
+    const { rows } = sheetLinearPatches(2, 'a4'), s1 = rows[0][0], s2 = rows[1][20];
+    // Rotate the sheet a quarter turn: (x, y) → (−y, x)
+    const grid = sheetGrid([{ x: -s1.y, y: s1.x }, { x: -s2.y, y: s2.x }], { rows, patch: 100 });
+    const p = rows[1][7], q = grid.rows[1][7];
+    expect(q.x).toBeCloseTo(-p.y, 6);
+    expect(q.y).toBeCloseTo(p.x, 6);
   });
 });
 
