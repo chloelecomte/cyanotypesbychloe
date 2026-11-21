@@ -238,7 +238,26 @@ export function summarizeReadings(r: Readings) {
 
 export type Scan = { canvas: HTMLCanvasElement; data: ImageData };
 type P2 = { x: number; y: number };
-const sampleRadius = ([a, b]: P2[]) => Math.max(1, Math.hypot(b.x - a.x, b.y - a.y) / 20 * 0.28);
+/** Patch centres on the scan, one row of 21 per tablet, and the half-size of the square sampled around each. */
+export type PatchGrid = { rows: P2[][]; rad: number };
+
+/** One tablet: 21 patches evenly spaced between the two clicked centres. */
+export function stripGrid([a, b]: P2[]): PatchGrid {
+  const row = Array.from({ length: 21 }, (_, i) => ({ x: a.x + (b.x - a.x) * i / 20, y: a.y + (b.y - a.y) * i / 20 }));
+  return { rows: [row], rad: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y) / 20 * 0.28) };
+}
+/** Every linear row of a calibration sheet, placed from two clicks: patch 1 of the first band and patch 21 of the last. */
+export function sheetGrid([a, b]: P2[], sheet: { rows: P2[][]; patch: number }): PatchGrid {
+  const s1 = sheet.rows[0][0], s2 = sheet.rows[sheet.rows.length - 1][20];
+  // Scale, rotation and shift from the two matching points, as a complex multiplication: p = a + z·(s − s1)
+  const dx = s2.x - s1.x, dy = s2.y - s1.y, d2 = dx * dx + dy * dy;
+  const zr = ((b.x - a.x) * dx + (b.y - a.y) * dy) / d2, zi = ((b.y - a.y) * dx - (b.x - a.x) * dy) / d2;
+  const map = (p: P2) => {
+    const u = p.x - s1.x, v = p.y - s1.y;
+    return { x: a.x + zr * u - zi * v, y: a.y + zi * u + zr * v };
+  };
+  return { rows: sheet.rows.map(r => r.map(map)), rad: Math.max(1, Math.hypot(zr, zi) * sheet.patch * 0.28) };
+}
 
 export async function loadScan(file: File): Promise<Scan> {
   const img = await createImageBitmap(file);
@@ -248,32 +267,36 @@ export async function loadScan(file: File): Promise<Scan> {
   img.close();
   return { canvas: c, data: ctx.getImageData(0, 0, c.width, c.height) };
 }
-export function drawScan(c: HTMLCanvasElement, scan: Scan, clicks: P2[]) {
+/** The scan with the clicks, or once placed, a square on every sampled patch (the `active` row highlighted). */
+export function drawScan(c: HTMLCanvasElement, scan: Scan, clicks: P2[], grid: PatchGrid | null, active = -1) {
   sizeCanvas(c, scan.canvas.width, scan.canvas.height);
   const ctx = c.getContext('2d')!;
   ctx.drawImage(scan.canvas, 0, 0);
   const r = Math.max(4, c.width / 300);
-  ctx.lineWidth = r / 2; ctx.strokeStyle = '#ff4d6d'; ctx.fillStyle = '#ff4d6d';
-  if (clicks.length === 2) {
-    const [a, b] = clicks, rad = sampleRadius(clicks);
-    for (let i = 0; i < 21; i++) {
-      const x = a.x + (b.x - a.x) * i / 20, y = a.y + (b.y - a.y) * i / 20;
-      ctx.strokeRect(x - rad, y - rad, rad * 2, rad * 2);
-    }
+  ctx.lineWidth = r / 2; ctx.fillStyle = '#ff4d6d';
+  if (grid) {
+    const rad = grid.rad;
+    grid.rows.forEach((row, j) => {
+      ctx.strokeStyle = j === active ? '#ffd166' : '#ff4d6d';
+      for (const p of row) ctx.strokeRect(p.x - rad, p.y - rad, rad * 2, rad * 2);
+    });
   } else clicks.forEach(p => { ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.fill(); });
 }
-/** Averages 21 patches evenly spaced between the two clicked centres. */
-export function sampleScan(scan: Scan, clicks: P2[], lstar: (r: number, g: number, b: number) => number): Readings {
-  const [a, b] = clicks, rad = Math.round(sampleRadius(clicks)), { data, width, height } = scan.data;
-  const L: number[] = [], colors: RGB[] = [];
-  for (let i = 0; i < 21; i++) {
-    const cx = Math.round(a.x + (b.x - a.x) * i / 20), cy = Math.round(a.y + (b.y - a.y) * i / 20);
-    let R = 0, G = 0, B = 0, n = 0;
-    for (let y = Math.max(0, cy - rad); y <= Math.min(height - 1, cy + rad); y++)
-      for (let x = Math.max(0, cx - rad); x <= Math.min(width - 1, cx + rad); x++) { const k = (y * width + x) * 4; R += data[k]; G += data[k + 1]; B += data[k + 2]; n++; }
-    colors.push([R / n, G / n, B / n].map(Math.round) as RGB); L.push(lstar(R / n, G / n, B / n));
-  }
-  return { L, colors };
+/** Averages each patch of the grid, one set of readings per row. */
+export function sampleScan(scan: Scan, grid: PatchGrid, lstar: (r: number, g: number, b: number) => number): Readings[] {
+  const rad = Math.round(grid.rad), { data, width, height } = scan.data;
+  return grid.rows.map(row => {
+    const L: number[] = [], colors: RGB[] = [];
+    for (const p of row) {
+      const cx = Math.round(p.x), cy = Math.round(p.y);
+      let R = 0, G = 0, B = 0, n = 0;
+      for (let y = Math.max(0, cy - rad); y <= Math.min(height - 1, cy + rad); y++)
+        for (let x = Math.max(0, cx - rad); x <= Math.min(width - 1, cx + rad); x++) { const k = (y * width + x) * 4; R += data[k]; G += data[k + 1]; B += data[k + 2]; n++; }
+      n = n || 1;
+      colors.push([R / n, G / n, B / n].map(Math.round) as RGB); L.push(lstar(R / n, G / n, B / n));
+    }
+    return { L, colors };
+  });
 }
 /** Readings always run from the lightest patch to the darkest, whichever end was clicked first. */
 export function orderReadings({ L, colors }: Readings): Readings {

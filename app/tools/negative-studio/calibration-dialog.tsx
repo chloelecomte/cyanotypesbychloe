@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { Download, FileImage, Printer, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -10,14 +11,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  drawCalChart, drawScan, loadScan, orderReadings, sampleScan, summarizeReadings, type Readings, type Scan,
+  drawCalChart, drawScan, loadScan, orderReadings, sampleScan, sheetGrid, stripGrid, summarizeReadings,
+  type PatchGrid, type Readings, type Scan,
 } from '@/lib/negative-studio/canvas';
 import { lstar } from '@/lib/negative-studio/math';
 import {
-  bandName, download, fmtMin, MAX_BANDS, parseSheetTimes, pngWithDpi, printInWindow, sheetCanvas, sheetName,
-  sheetSchedule, tabletCanvas, type SheetSize,
+  bandName, download, fmtMin, MAX_BANDS, parseSheetTimes, pngWithDpi, printInWindow, sheetCanvas, sheetLinearPatches,
+  sheetName, sheetSchedule, tabletCanvas, type SheetSize,
 } from '@/lib/negative-studio/output';
-import { isLinear, LINEAR } from '@/lib/negative-studio/pipeline';
+import { isLinear, LINEAR, suggestExposure } from '@/lib/negative-studio/pipeline';
 import { BusyButton, Field, useBusy } from './controls';
 import { useStudio } from './use-studio';
 
@@ -37,6 +39,11 @@ export function CalibrationDialog({ open, onOpenChange }: { open: boolean; onOpe
   const text = (v: string) => v.trim() || null;
 
   const times = parseSheetTimes(timesText);
+  const sheetSpec = useMemo(() => { const t = parseSheetTimes(timesText); return t && { times: t, size }; }, [timesText, size]);
+  const takeReadings = (r: Readings, minutes?: number) => {
+    setReadings(r);
+    if (minutes !== undefined) setFields(f => ({ ...f, exposure: String(minutes) }));
+  };
   const sheet = () => sheetCanvas(times!, size, curve, isLinear(settings.curve || LINEAR), profile?.name ?? 'Generic cyanotype');
 
   function saveSheet() {
@@ -109,7 +116,7 @@ export function CalibrationDialog({ open, onOpenChange }: { open: boolean; onOpe
             <ol className="list-decimal space-y-1 pl-5">
               <li>Lay the film on the sensitized paper and expose the whole sheet. Each time on the list comes up, slide an opaque card down to the next marked line (the ticks in the margins), covering one more band. The top band gets the shortest time, the bottom band the longest.</li>
               <li>Develop and dry fully — cyanotype darkens as it dries.</li>
-              <li>In the <b>linear</b> rows, compare the last few patches (19–21, clearest film) from band to band. They get darker with time, then stop. Pick the <b>shortest</b> time at which they&apos;re as dark as in the longer bands, while patches 1–2 stay paper white. A shorter band whose last patches have merged into a <i>lighter</i> blue is underexposed. Longer bands that are no darker only cost you highlights. This &ldquo;standard printing time&rdquo; idea is how Christina Z. Anderson approaches it in her cyanotype and digital-negative books.</li>
+              <li>In the <b>linear</b> rows, compare the last few patches (19–21, clearest film) from band to band. They get darker with time, then stop. Pick the <b>shortest</b> time at which they&apos;re as dark as in the longer bands, while patches 1–2 stay paper white. A shorter band whose last patches have merged into a <i>lighter</i> blue is underexposed. Longer bands that are no darker only cost you highlights. This &ldquo;standard printing time&rdquo; idea is how Christina Z. Anderson approaches it in her cyanotype and digital-negative books. Step 3 can measure this and suggest the time for you.</li>
               <li>From now on always use that time, paper and chemistry.</li>
             </ol>
             <p className="mt-2">Don&apos;t worry if only a handful of linear patches differ before they all turn full blue. That&apos;s normal before calibrating, and it&apos;s what the curve corrects. Don&apos;t shorten the exposure to stretch the row out.</p>
@@ -119,13 +126,26 @@ export function CalibrationDialog({ open, onOpenChange }: { open: boolean; onOpe
           </Section>
 
           <Section n={3} title="Read your print">
-            <p>Scan the dry print on a flatbed with colour correction off (a photo works only in very even light). Then click patch 1 and patch 21 of the <b>linear</b> row in the band you picked. Patch 1 is the lightest, patch 21 the darkest.</p>
-            <Tabs defaultValue="scan" className="mt-3">
+            <p>Scan the dry print on a flatbed with colour correction off (a photo works only in very even light).</p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-5">
+              <li><b>Whole sheet:</b> click patch 1 of the top band&apos;s <b>linear</b> row and patch 21 of the bottom band&apos;s. The studio reads every band and suggests the exposure time.</li>
+              <li><b>One row:</b> click patch 1 and patch 21 of the <b>linear</b> row in the band you picked. Patch 1 is the lightest, patch 21 the darkest.</li>
+            </ul>
+            <Tabs defaultValue="sheet" className="mt-3">
               <TabsList>
-                <TabsTrigger value="scan">From a scan</TabsTrigger>
+                <TabsTrigger value="sheet">Whole sheet</TabsTrigger>
+                <TabsTrigger value="scan">One row</TabsTrigger>
                 <TabsTrigger value="type">Type values</TabsTrigger>
               </TabsList>
-              <TabsContent value="scan"><ScanReader onReadings={setReadings} /></TabsContent>
+              <TabsContent value="sheet">
+                <p className="pt-2 text-xs text-muted-foreground">
+                  {sheetSpec
+                    ? <>Reading a {size === 'a4' ? 'A4' : 'US Letter'} sheet with {sheetSpec.times.length} band{sheetSpec.times.length > 1 ? 's' : ''} ({sheetSpec.times.map((t, i) => `${bandName(i)} = ${fmtMin(t)}`).join(', ')}). If your sheet had other times or another size, change them in step 1 first.</>
+                    : <span className="text-warning">{TIMES_HINT} They must match the sheet you printed.</span>}
+                </p>
+                {sheetSpec && <ScanReader sheet={sheetSpec} onReadings={takeReadings} />}
+              </TabsContent>
+              <TabsContent value="scan"><ScanReader sheet={null} onReadings={takeReadings} /></TabsContent>
               <TabsContent value="type"><TypedReadings onReadings={setReadings} /></TabsContent>
             </Tabs>
             <CalChart readings={readings} />
@@ -180,33 +200,98 @@ function Section({ n, title, children }: { n: number; title: string; children: R
   );
 }
 
-function ScanReader({ onReadings }: { onReadings: (r: Readings) => void }) {
-  const [scan, setScan] = useState<Scan | null>(null), [clicks, setClicks] = useState<{ x: number; y: number }[]>([]);
-  const canvas = useRef<HTMLCanvasElement>(null), file = useRef<HTMLInputElement>(null);
-  useEffect(() => { if (scan) drawScan(canvas.current!, scan, clicks); }, [scan, clicks]);
+type SheetSpec = { times: number[]; size: SheetSize };
+type OnReadings = (r: Readings, minutes?: number) => void;
+
+/** Picks a scan; `sheet` reads every band of a calibration sheet, null reads a single row. */
+function ScanReader({ sheet, onReadings }: { sheet: SheetSpec | null; onReadings: OnReadings }) {
+  const [scan, setScan] = useState<Scan | null>(null);
+  const file = useRef<HTMLInputElement>(null);
 
   async function choose(f: File) {
-    try { setScan(await loadScan(f)); setClicks([]); }
+    try { setScan(await loadScan(f)); }
     catch { toast.error("Couldn't open that scan", { description: 'Try a JPEG or PNG.' }); }
   }
+  return (
+    <div className="pt-2">
+      <Button variant="outline" size="sm" onClick={() => file.current?.click()}><FileImage />Choose scan…</Button>
+      <input ref={file} type="file" accept="image/*,.tif,.tiff" hidden onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) choose(f); }} />
+      {/* A new scan or a different sheet layout starts the clicks over */}
+      {scan && <ScanClicks key={sheet ? `${sheet.times.join()}|${sheet.size}` : 'row'} scan={scan} sheet={sheet} onReadings={onReadings} />}
+    </div>
+  );
+}
+
+function ScanClicks({ scan, sheet, onReadings }: { scan: Scan; sheet: SheetSpec | null; onReadings: OnReadings }) {
+  const [clicks, setClicks] = useState<{ x: number; y: number }[]>([]);
+  const [result, setResult] = useState<{ grid: PatchGrid; readings: Readings[]; suggestion: ReturnType<typeof suggestExposure> | null } | null>(null);
+  const [chosen, setChosen] = useState(-1);
+  const canvas = useRef<HTMLCanvasElement>(null);
+  useEffect(() => drawScan(canvas.current!, scan, clicks, result?.grid ?? null, chosen), [scan, clicks, result, chosen]);
+
   function onClick(e: React.MouseEvent<HTMLCanvasElement>) {
-    if (!scan) return;
     const c = e.currentTarget, r = c.getBoundingClientRect();
     const p = { x: (e.clientX - r.left) / r.width * c.width, y: (e.clientY - r.top) / r.height * c.height };
     const next = clicks.length >= 2 ? [p] : [...clicks, p];
-    setClicks(next);
-    if (next.length === 2) onReadings(orderReadings(sampleScan(scan, next, lstar)));
+    setClicks(next); setChosen(-1); setResult(null);
+    if (next.length < 2) return;
+    const grid = sheet ? sheetGrid(next, sheetLinearPatches(sheet.times.length, sheet.size)) : stripGrid(next);
+    const readings = sampleScan(scan, grid, lstar).map(orderReadings);
+    const suggestion = sheet ? suggestExposure(readings.map((rd, i) => ({ minutes: sheet.times[i], L: rd.L }))) : null;
+    setResult({ grid, readings, suggestion });
+    if (!sheet) onReadings(readings[0]);
+    else if (suggestion!.pick >= 0) { setChosen(suggestion!.pick); onReadings(readings[suggestion!.pick], sheet.times[suggestion!.pick]); }
   }
-  const msg = ['Click the centre of patch 1 (lightest).', 'Now click the centre of patch 21 (darkest).', 'Done — click again to start over.'][Math.min(2, clicks.length)];
+  function choose(i: number) {
+    setChosen(i);
+    onReadings(result!.readings[i], sheet!.times[i]);
+  }
+  const msg = sheet
+    ? ['Click the centre of patch 1 in band A’s linear row.', `Now click the centre of patch 21 in band ${bandName(sheet.times.length - 1)}’s linear row.`, 'Done — click again to start over.']
+    : ['Click the centre of patch 1 (lightest).', 'Now click the centre of patch 21 (darkest).', 'Done — click again to start over.'];
 
   return (
-    <div className="pt-2">
-      <div className="flex items-center gap-3">
-        <Button variant="outline" size="sm" onClick={() => file.current?.click()}><FileImage />Choose scan…</Button>
-        {scan && <span className="text-xs text-muted-foreground">{msg}</span>}
-        <input ref={file} type="file" accept="image/*,.tif,.tiff" hidden onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) choose(f); }} />
+    <>
+      <p className="mt-2 text-xs text-muted-foreground">{msg[Math.min(2, clicks.length)]}</p>
+      <canvas ref={canvas} onClick={onClick} className="mt-2 block max-w-full cursor-crosshair rounded-md bg-[#111]"
+        aria-label={sheet ? 'Your scan: click patch 1 of the first band, then patch 21 of the last band' : 'Your scan: click patch 1, then patch 21'} />
+      {result?.suggestion && <ExposureSuggestion suggestion={result.suggestion} readings={result.readings} chosen={chosen} onChoose={choose} />}
+    </>
+  );
+}
+
+function ExposureSuggestion({ suggestion: { rows, pick, tryLonger, tryShorter }, readings, chosen, onChoose }: {
+  suggestion: ReturnType<typeof suggestExposure>; readings: Readings[]; chosen: number; onChoose: (i: number) => void;
+}) {
+  if (pick < 0) return (
+    <p className="mt-2 text-xs text-warning">
+      These rows don&apos;t look like the sheet&apos;s linear tablets. Check that the exposure times and film size in step 1 match the sheet you printed, then click patch 1 and patch 21 again.
+    </p>
+  );
+  const best = rows[pick], picked = rows[chosen];
+  return (
+    <div className="mt-3 grid gap-2">
+      <div className="grid gap-1" role="radiogroup" aria-label="Band to calibrate from">
+        {rows.map((b, i) => (
+          <button key={i} type="button" role="radio" aria-checked={i === chosen} onClick={() => onChoose(i)}
+            className={`flex items-center gap-3 rounded-md border px-2 py-1.5 text-left text-xs ${i === chosen ? 'border-primary bg-primary/10' : 'border-transparent hover:bg-muted'}`}>
+            <span className="w-20 shrink-0 font-medium text-foreground">{bandName(i)} · {fmtMin(b.minutes)}</span>
+            <span className="flex h-4 min-w-0 flex-1 overflow-hidden rounded-sm" aria-hidden>
+              {readings[i].colors?.map((c, k) => <span key={k} className="flex-1" style={{ background: `rgb(${c})` }} />)}
+            </span>
+            <span className="w-28 shrink-0 text-muted-foreground">{b.atDmax ? 'reaches full blue' : 'lighter blue'}{b.tinted ? ' · tinted' : ''}</span>
+            <span className="w-16 shrink-0 text-right">{i === pick && <Badge variant="outline" className="border-success/40 text-success">Suggested</Badge>}</span>
+          </button>
+        ))}
       </div>
-      {scan && <canvas ref={canvas} onClick={onClick} className="mt-2 block max-w-full cursor-crosshair rounded-md bg-[#111]" aria-label="Your scan: click patch 1, then patch 21" />}
+      <p className="text-xs text-muted-foreground">
+        Suggested: <b className="text-foreground">{fmtMin(best.minutes)}</b> (band {bandName(pick)}), the shortest time whose clearest patches (19–21) reach the deepest blue on the sheet.
+        {pick < rows.length - 1 && ' Longer bands are no darker; they only cost highlights.'}
+        {tryLonger && <span className="text-warning"> Only the longest band got there, so more time might still darken it. Print another sheet with longer times to be sure.</span>}
+        {tryShorter && <span className="text-warning"> Even the shortest band got there, so a shorter time might too. Print another sheet with shorter times to be sure.</span>}
+        {picked?.tinted && <span className="text-warning"> Patches 1–2 of band {bandName(chosen)} are tinted compared with the whitest band, so highlights may print slightly blue.</span>}
+        {' '}The readings below are from band {bandName(chosen)}; click another band to use it instead.
+      </p>
     </div>
   );
 }
