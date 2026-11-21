@@ -52,7 +52,7 @@ export type Profile = {
 
 export type SavedCurve = { id: string; name: string; points: Pt[]; profileId: string | null };
 
-/** A negative saved to the account: its original photo is in Storage at `photoPath`. */
+/** A negative saved to the account: its original photo is in Storage at `photoPath` (see `photoObjects` for photos stored in parts). */
 export type SavedNegative = {
   id: string; name: string; recipe: NegativeRecipe; profileId: string | null; photoPath: string;
   info: string | null; thumbnail: string | null; createdAt: string; updatedAt: string;

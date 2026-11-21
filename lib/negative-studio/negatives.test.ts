@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildProjectFile, parseRecipe, photoFileName, readProjectFile, recipeKey, recipeOf, safeFileName, unzip, zip } from './negatives';
+import { buildProjectFile, parseRecipe, photoFileName, photoLayout, photoObjects, photoTypeOf, readProjectFile, recipeKey, recipeOf, safeFileName, unzip, zip } from './negatives';
 import { DEFAULT_SETTINGS, type Settings } from './types';
 
 const edited: Settings = {
@@ -79,5 +79,26 @@ describe('project files', () => {
     expect(photoFileName(new Blob([]))).toBe('original.jpg');
     expect(safeFileName('a/b:c?')).toBe('a-b-c-');
     expect(safeFileName('  ')).toBe('negative');
+  });
+});
+
+describe('photos in Storage', () => {
+  it('stores a small photo as one file', () => {
+    expect(photoLayout('u/n/original.tif', 100, 100)).toEqual({ photoPath: 'u/n/original.tif', objects: [{ path: 'u/n/original.tif', start: 0, end: 100 }] });
+    expect(photoObjects('u/n/original.tif')).toEqual({ path: 'u/n/original.tif', objects: ['u/n/original.tif'] });
+  });
+  it('splits a large photo into parts that cover every byte', () => {
+    const l = photoLayout('u/n/original.tif', 250, 100);
+    expect(l.photoPath).toBe('u/n/original.tif#3');
+    expect(l.objects).toEqual([
+      { path: 'u/n/original.tif.part1', start: 0, end: 100 },
+      { path: 'u/n/original.tif.part2', start: 100, end: 200 },
+      { path: 'u/n/original.tif.part3', start: 200, end: 250 },
+    ]);
+    expect(photoObjects(l.photoPath)).toEqual({ path: 'u/n/original.tif', objects: l.objects.map(o => o.path) });
+  });
+  it('knows the photo type from its name', () => {
+    expect(photoTypeOf('u/n/original.TIF')).toBe('image/tiff');
+    expect(photoTypeOf('original')).toBe('');
   });
 });

@@ -13,7 +13,7 @@ import {
 import { decodeAcv, encodeAcv, normalizeImportedCurve, parseLutText } from '@/lib/negative-studio/files';
 import type { Pt, RGB } from '@/lib/negative-studio/math';
 import {
-  buildProjectFile, photoSettings, PROJECT_SUFFIX, readProjectFile, recipeKey, recipeOf, safeFileName,
+  buildProjectFile, photoObjects, photoSettings, PROJECT_SUFFIX, readProjectFile, recipeKey, recipeOf, safeFileName,
   type NegativeRecipe, type PhotoSettings,
 } from '@/lib/negative-studio/negatives';
 import { cyanotypePreview, download, jpeg, type Photo } from '@/lib/negative-studio/output';
@@ -364,7 +364,7 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
   async function exportSavedNegative(n: SavedNegative) {
     try {
       const photo = await repo.downloadNegativePhoto(n.photoPath);
-      const blob = await buildProjectFile({ name: n.name, recipe: n.recipe, photo, photoName: n.photoPath.split('/').pop()!, info: n.info, profileName: profileName(n.recipe.profile) });
+      const blob = await buildProjectFile({ name: n.name, recipe: n.recipe, photo, photoName: photoObjects(n.photoPath).path.split('/').pop()!, info: n.info, profileName: profileName(n.recipe.profile) });
       download(blob, safeFileName(n.name) + PROJECT_SUFFIX);
     } catch (e) { toast.error("Couldn't make the project file", { description: (e as Error).message }); }
   }

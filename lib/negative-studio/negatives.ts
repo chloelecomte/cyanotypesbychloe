@@ -85,6 +85,28 @@ export function photoFileName(photo: Blob, name?: string) {
   return `original.${PHOTO_EXT[photo.type] ?? fromName ?? 'jpg'}`;
 }
 /** A file name without characters that file systems reject. */
+/** The MIME type a photo file name implies, or '' if unknown. */
+export const photoTypeOf = (name: string) => PHOTO_TYPE[name.match(/\.([a-z0-9]+)$/i)?.[1].toLowerCase() ?? ''] ?? '';
+
+// ---------- Photos in account Storage ----------
+// Storage takes at most 50 MB per file, so a bigger photo is stored as parts (`<path>.part1`…)
+// and recorded as `<path>#<count>`. A path without `#` is a single file.
+
+/** Part size, with room to spare under the 50 MB per-file limit. */
+export const PHOTO_PART_BYTES = 40 * 1024 * 1024;
+/** The photo's own path, and the Storage objects that hold it. */
+export function photoObjects(photoPath: string) {
+  const m = photoPath.match(/^(.*)#(\d+)$/);
+  if (!m) return { path: photoPath, objects: [photoPath] };
+  return { path: m[1], objects: Array.from({ length: +m[2] }, (_, i) => `${m[1]}.part${i + 1}`) };
+}
+/** How to store a photo of `size` bytes at `path`: the recorded path, and each object's byte range. */
+export function photoLayout(path: string, size: number, partBytes = PHOTO_PART_BYTES) {
+  if (size <= partBytes) return { photoPath: path, objects: [{ path, start: 0, end: size }] };
+  const n = Math.ceil(size / partBytes), photoPath = `${path}#${n}`;
+  return { photoPath, objects: photoObjects(photoPath).objects.map((o, i) => ({ path: o, start: i * partBytes, end: Math.min(size, (i + 1) * partBytes) })) };
+}
+
 export const safeFileName = (name: string) => name.replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '-').trim().slice(0, 120) || 'negative';
 
 export async function buildProjectFile(p: Project): Promise<Blob> {
@@ -109,11 +131,10 @@ export async function readProjectFile(file: Blob): Promise<Project> {
   const photoName = typeof m.photo === 'string' ? m.photo : '';
   const bytes = files.get(photoName);
   if (!bytes) throw new Error('The project file has no photo in it.');
-  const ext = photoName.match(/\.([a-z0-9]+)$/i)?.[1].toLowerCase() ?? '';
   return {
     name: typeof m.name === 'string' && m.name.trim() ? m.name.trim().slice(0, 200) : 'Negative',
     recipe: parseRecipe(m.recipe),
-    photo: new Blob([bytes as Uint8Array<ArrayBuffer>], { type: PHOTO_TYPE[ext] ?? '' }),
+    photo: new Blob([bytes as Uint8Array<ArrayBuffer>], { type: photoTypeOf(photoName) }),
     photoName,
     info: typeof m.info === 'string' ? m.info : null,
     profileName: typeof m.profileName === 'string' ? m.profileName : null,

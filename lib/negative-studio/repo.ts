@@ -3,7 +3,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database, Json } from '@/lib/supabase/database.types';
 import type { Pt, RGB } from './math';
-import { parseRecipe, photoFileName, type NegativeRecipe } from './negatives';
+import { parseRecipe, photoFileName, photoLayout, photoObjects, photoTypeOf, type NegativeRecipe } from './negatives';
 import type { Calibration, Profile, SavedCurve, SavedNegative, Settings, StudioData } from './types';
 
 type DB = SupabaseClient<Database>;
@@ -165,13 +165,18 @@ export function createRepo(db: DB, userId: string) {
       return check(await db.from('negatives').select('*').order('updated_at', { ascending: false })).map(toNegative);
     },
 
-    /** Uploads the original photo, then records the negative. */
+    /** Uploads the original photo (in parts if it's over the per-file limit), then records the negative. */
     async createNegative(fields: NegativeFields, photo: Blob, photoName: string): Promise<SavedNegative> {
-      const id = crypto.randomUUID(), path = `${userId}/${id}/${photoFileName(photo, photoName)}`;
-      const up = await db.storage.from(BUCKET).upload(path, photo, { contentType: photo.type || undefined, upsert: false });
-      if (up.error) throw new Error(/exceed|too large|size/i.test(up.error.message) ? 'The photo is larger than 50 MB, the most the account can store.' : up.error.message);
-      const res = await db.from('negatives').insert({ id, photo_path: path, ...negativeColumns(fields) }).select().single();
-      if (res.error) { await db.storage.from(BUCKET).remove([path]); throw new Error(res.error.message); }
+      const id = crypto.randomUUID(), { photoPath, objects } = photoLayout(`${userId}/${id}/${photoFileName(photo, photoName)}`, photo.size);
+      const uploaded: string[] = [], cleanUp = () => uploaded.length ? db.storage.from(BUCKET).remove(uploaded) : null;
+      for (const o of objects) {
+        const part = objects.length === 1 ? photo : photo.slice(o.start, o.end, 'application/octet-stream');
+        const up = await db.storage.from(BUCKET).upload(o.path, part, { contentType: part.type || undefined, upsert: false });
+        if (up.error) { await cleanUp(); throw new Error(up.error.message); }
+        uploaded.push(o.path);
+      }
+      const res = await db.from('negatives').insert({ id, photo_path: photoPath, ...negativeColumns(fields) }).select().single();
+      if (res.error) { await cleanUp(); throw new Error(res.error.message); }
       return toNegative(check(res));
     },
 
@@ -183,17 +188,21 @@ export function createRepo(db: DB, userId: string) {
       return toNegative(check(res));
     },
 
-    async downloadNegativePhoto(path: string): Promise<Blob> {
-      const { data, error } = await db.storage.from(BUCKET).download(path);
-      if (error) throw new Error(error.message);
-      return data;
+    async downloadNegativePhoto(photoPath: string): Promise<Blob> {
+      const { path, objects } = photoObjects(photoPath), parts: Blob[] = [];
+      for (const o of objects) {
+        const { data, error } = await db.storage.from(BUCKET).download(o);
+        if (error) throw new Error(error.message);
+        parts.push(data);
+      }
+      return parts.length === 1 ? parts[0] : new Blob(parts, { type: photoTypeOf(path) });
     },
 
     async deleteNegative(n: SavedNegative) {
       const { error } = await db.from('negatives').delete().eq('id', n.id);
       if (error) throw new Error(error.message);
       // The row is gone, so a photo left behind is only wasted space.
-      await db.storage.from(BUCKET).remove([n.photoPath]);
+      await db.storage.from(BUCKET).remove(photoObjects(n.photoPath).objects);
     },
   };
 }
