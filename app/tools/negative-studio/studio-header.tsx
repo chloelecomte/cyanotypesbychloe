@@ -1,6 +1,6 @@
 'use client';
 
-import { CircleHelp, CloudAlert, CloudCheck, Gauge, Loader2, LogOut } from 'lucide-react';
+import { CircleHelp, CloudAlert, CloudCheck, Gauge, Images, Loader2, LogOut } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { IconButton } from './controls';
 import { useStudio } from './use-studio';
 
-export function StudioHeader({ onCalibrate, onHelp }: { onCalibrate: () => void; onHelp: () => void }) {
+export function StudioHeader({ onCalibrate, onHelp, onLibrary }: { onCalibrate: () => void; onHelp: () => void; onLibrary: () => void }) {
   const { user } = useStudio();
   return (
     <header className="col-span-2 flex h-12 items-center gap-1 border-b bg-card px-3">
@@ -20,6 +20,7 @@ export function StudioHeader({ onCalibrate, onHelp }: { onCalibrate: () => void;
         Cyanotype <span className="text-cyan-ink">Negative</span> Studio
       </a>
       <SaveStatus />
+      <Button variant="ghost" size="sm" onClick={onLibrary} title="Negatives saved to your account"><Images className="size-[18px]" />My negatives</Button>
       <IconButton label="Calibrate my process" onClick={onCalibrate}><Gauge className="size-[18px]" /></IconButton>
       <IconButton label="How it works" onClick={onHelp}><CircleHelp className="size-[18px]" /></IconButton>
       <DropdownMenu>

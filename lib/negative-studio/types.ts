@@ -1,4 +1,5 @@
 import type { Pt, RGB } from './math';
+import type { NegativeRecipe } from './negatives';
 import type { ProcessModel, Tone } from './pipeline';
 
 export type View = 'orig' | 'bw' | 'neg' | 'cyan' | 'compare';
@@ -50,6 +51,12 @@ export type Profile = {
 };
 
 export type SavedCurve = { id: string; name: string; points: Pt[]; profileId: string | null };
+
+/** A negative saved to the account: its original photo is in Storage at `photoPath`. */
+export type SavedNegative = {
+  id: string; name: string; recipe: NegativeRecipe; profileId: string | null; photoPath: string;
+  info: string | null; thumbnail: string | null; createdAt: string; updatedAt: string;
+};
 
 export type StudioData = { settings: Partial<Settings> | null; profiles: Profile[]; curves: SavedCurve[] };
 
