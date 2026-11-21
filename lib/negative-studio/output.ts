@@ -60,19 +60,37 @@ export function buildNegative(photo: Photo, p: PrintSettings, bw: Settings['bw']
   if (TW * TH > 120e6) throw new Error('That negative is too large to build. Reduce the width or resolution.');
   const out = document.createElement('canvas'); out.width = TW; out.height = TH;
   const octx = out.getContext('2d')!;
+  // Everything is drawn straight into the one big canvas, mirrored as it goes: a second full-size
+  // canvas (or a full-size getImageData) can push the browser past its canvas memory limit, and
+  // then it silently hands back empty pixels, giving a flat grey negative.
+  if (p.mirror) octx.setTransform(-1, 0, 0, 1, TW, 0);
+  octx.imageSmoothingEnabled = false;
   octx.fillStyle = p.borderType === 'black' ? '#000' : '#fff'; octx.fillRect(0, 0, TW, TH);
-  const tmp = document.createElement('canvas'); tmp.width = Wpx; tmp.height = Hpx;
-  const tctx = tmp.getContext('2d', { willReadFrequently: true })!, cp = cropPx(photo.src, photo.rot, photo.crop);
-  drawOriented(tctx, photo.src, photo, Wpx / cp.w, cp.x, cp.y);
-  const id = tctx.getImageData(0, 0, Wpx, Hpx), d = id.data, [wr, wg, wb] = grayWeights(bw), k = (N - 1) / 255;
-  for (let j = 0; j < d.length; j += 4) {
-    const v = neg[(clamp(wr * d[j] + wg * d[j + 1] + wb * d[j + 2], 0, 255) * k + 0.5) | 0];
-    d[j] = d[j + 1] = d[j + 2] = v; d[j + 3] = 255;
+  // The photo goes through in horizontal strips of at most ~16 MP.
+  const cp = cropPx(photo.src, photo.rot, photo.crop), s = Wpx / cp.w, [wr, wg, wb] = grayWeights(bw), k = (N - 1) / 255;
+  const rows = Math.max(1, Math.min(Hpx, Math.floor(16e6 / Wpx)));
+  const strip = document.createElement('canvas'); strip.width = Wpx; strip.height = rows;
+  const sctx = strip.getContext('2d', { willReadFrequently: true })!;
+  for (let y0 = 0; y0 < Hpx; y0 += rows) {
+    const h = Math.min(rows, Hpx - y0);
+    sctx.clearRect(0, 0, Wpx, rows);
+    drawOriented(sctx, photo.src, photo, s, cp.x, cp.y + y0 / s);
+    const id = sctx.getImageData(0, 0, Wpx, h), d = id.data;
+    if (y0 === 0 && !d.some((v, i) => (i & 3) === 3 && v)) throw new Error(blankError);
+    for (let j = 0; j < d.length; j += 4) {
+      const v = neg[(clamp(wr * d[j] + wg * d[j + 1] + wb * d[j + 2], 0, 255) * k + 0.5) | 0];
+      d[j] = d[j + 1] = d[j + 2] = v; d[j + 3] = 255;
+    }
+    sctx.putImageData(id, 0, 0);
+    octx.drawImage(strip, 0, 0, Wpx, h, b, b + y0, Wpx, h);
   }
-  octx.putImageData(id, b, b);
   if (p.tablet) drawTablet(octx, curve, b, b + Hpx + gap, Wpx, tH, p.tabletCorr, Math.round(tH * 0.28));
-  return p.mirror ? mirrored(out) : out;
+  // A canvas the browser couldn't allocate reads back as transparent.
+  const probe = octx.getImageData(Math.floor(TW / 2), Math.floor(TH / 2), 1, 1).data;
+  if (probe[3] !== 255) throw new Error(blankError);
+  return out;
 }
+const blankError = "The browser ran out of memory building this negative. Lower the resolution or width (or close other tabs) and try again.";
 export function negativeName(name: string, p: PrintSettings, photo: Photo) {
   const { wIn, hIn } = printDims(p, photo);
   return `${name}_negative_${wIn.toFixed(1)}x${hIn.toFixed(1)}in_${p.dpi}dpi${p.mirror ? '_mirrored' : ''}.png`;
