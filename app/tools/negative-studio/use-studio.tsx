@@ -13,7 +13,7 @@ import {
 import { decodeAcv, encodeAcv, normalizeImportedCurve, parseLutText } from '@/lib/negative-studio/files';
 import type { Pt, RGB } from '@/lib/negative-studio/math';
 import {
-  buildProjectFile, photoObjects, photoSettings, PROJECT_SUFFIX, readProjectFile, recipeKey, recipeOf, safeFileName,
+  buildProjectFile, photoObjects, photoSettings, PROJECT_SUFFIX, restoredPhotoSettings, readProjectFile, recipeKey, recipeOf, safeFileName,
   type NegativeRecipe, type PhotoSettings,
 } from '@/lib/negative-studio/negatives';
 import { cyanotypePreview, download, jpeg, type Photo } from '@/lib/negative-studio/output';
@@ -267,7 +267,7 @@ function useStudioState({ user, data, repo }: { user: StudioUser; data: StudioDa
         if (cancelled) { for (const t of restored) if ('close' in t.src) t.src.close(); return; }
         set(st => {
           // Photos opened while these were loading stay open, after them.
-          const back = restored.map((t, i): Tab => ({ ...t, id: st.nextId + i, settings: { ...photoSettings(st.settings), ...t.settings } }));
+          const back = restored.map((t, i): Tab => ({ ...t, id: st.nextId + i, settings: restoredPhotoSettings(t.settings, photoSettings(st.settings)) }));
           const withBack = { ...st, tabs: [...back, ...st.tabs], nextId: st.nextId + back.length };
           const activeId = st.activeId ?? back.find(t => t.key === saved.session.activeKey)?.id ?? back[0]?.id ?? null;
           return { tabs: withBack.tabs, nextId: withBack.nextId, ...(activeId !== st.activeId ? activateState(withBack, activeId) : {}) };

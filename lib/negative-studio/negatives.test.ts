@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildProjectFile, parseRecipe, photoFileName, photoLayout, photoObjects, photoTypeOf, readProjectFile, recipeKey, recipeOf, safeFileName, unzip, zip } from './negatives';
+import { buildProjectFile, parseRecipe, photoFileName, photoSettings, restoredPhotoSettings, photoLayout, photoObjects, photoTypeOf, readProjectFile, recipeKey, recipeOf, safeFileName, unzip, zip } from './negatives';
 import { DEFAULT_SETTINGS, type Settings } from './types';
 
 const edited: Settings = {
@@ -9,6 +9,23 @@ const edited: Settings = {
   print: { ...DEFAULT_SETTINGS.print, width: 12, dpi: 720 },
 };
 const photo = { rot: 1, flip: true, crop: { x: 0.1, y: 0.2, w: 0.5, h: 0.6 } };
+
+describe('restoredPhotoSettings', () => {
+  it('fills in print settings a tab saved by an older version lacks', () => {
+    const oldPrint: Partial<Settings['print']> = { ...edited.print };
+    delete oldPrint.layout; delete oldPrint.sheet;
+    const r = restoredPhotoSettings({ ...photoSettings(edited), print: oldPrint }, photoSettings(DEFAULT_SETTINGS));
+    expect(r.print.sheet).toEqual(DEFAULT_SETTINGS.print.sheet);
+    expect(r.print.layout).toBe('single');
+    expect(r.print.width).toBe(12);
+    expect(r.tone.contrast).toBe(12);
+    expect(r.curve).toEqual(edited.curve);
+  });
+  it('keeps everything a current tab saved', () => {
+    const s = photoSettings({ ...edited, print: { ...edited.print, layout: 'sheet', sheet: { ...edited.print.sheet, cols: 4, labels: '1, 2' } } });
+    expect(restoredPhotoSettings(JSON.parse(JSON.stringify(s)), photoSettings(DEFAULT_SETTINGS))).toEqual(s);
+  });
+});
 
 describe('recipes', () => {
   it('keeps the edits, and freezes the curve', () => {
