@@ -3,6 +3,7 @@
 import { clamp } from './math';
 import { cropPx, drawOriented, grayWeights, N, type Crop, type Fn, type Orientation, type Source } from './canvas';
 import { withPhys } from './files';
+import { LABEL_TEXT, printedLabels, sheetLayout as copiesLayout, sheetLabels } from './sheet';
 import type { PrintSettings, Settings } from './types';
 
 export async function pngWithDpi(canvas: HTMLCanvasElement, dpi: number) {
@@ -52,15 +53,8 @@ function mirrored(canvas: HTMLCanvasElement) {
   return m;
 }
 
-/** The negative at print resolution: border, inverted and curved image, optional tablet, mirrored if asked. */
-export function buildNegative(photo: Photo, p: PrintSettings, bw: Settings['bw'], neg: Uint8ClampedArray, curve: Fn) {
-  const dpi = +p.dpi, { Wpx, Hpx } = printDims(p, photo);
-  const b = Math.round(p.border * dpi), gap = Math.round(0.15 * dpi), tH = Math.round(0.4 * dpi);
-  const TW = Wpx + 2 * b, TH = Hpx + 2 * b + (p.tablet ? gap + tH : 0);
-  if (TW * TH > 120e6) throw new Error('That negative is too large to build. Reduce the width or resolution.');
-  const out = document.createElement('canvas'); out.width = TW; out.height = TH;
-  const octx = out.getContext('2d')!;
-  octx.fillStyle = p.borderType === 'black' ? '#000' : '#fff'; octx.fillRect(0, 0, TW, TH);
+/** The photo as a negative, `Wpx` × `Hpx`: inverted and curved, not mirrored. */
+function negativeImage(photo: Photo, Wpx: number, Hpx: number, bw: Settings['bw'], neg: Uint8ClampedArray) {
   const tmp = document.createElement('canvas'); tmp.width = Wpx; tmp.height = Hpx;
   const tctx = tmp.getContext('2d', { willReadFrequently: true })!, cp = cropPx(photo.src, photo.rot, photo.crop);
   drawOriented(tctx, photo.src, photo, Wpx / cp.w, cp.x, cp.y);
@@ -69,13 +63,62 @@ export function buildNegative(photo: Photo, p: PrintSettings, bw: Settings['bw']
     const v = neg[(clamp(wr * d[j] + wg * d[j + 1] + wb * d[j + 2], 0, 255) * k + 0.5) | 0];
     d[j] = d[j + 1] = d[j + 2] = v; d[j + 3] = 255;
   }
-  octx.putImageData(id, b, b);
+  tctx.putImageData(id, 0, 0);
+  return tmp;
+}
+const tooLarge = (w: number, h: number) => {
+  if (w * h > 120e6) throw new Error('That negative is too large to build. Reduce the size or resolution.');
+};
+
+/** The negative at print resolution: border, inverted and curved image, optional tablet, mirrored if asked. */
+export function buildNegative(photo: Photo, p: PrintSettings, bw: Settings['bw'], neg: Uint8ClampedArray, curve: Fn) {
+  if (p.layout === 'sheet') return buildSheet(photo, p, bw, neg);
+  const dpi = +p.dpi, { Wpx, Hpx } = printDims(p, photo);
+  const b = Math.round(p.border * dpi), gap = Math.round(0.15 * dpi), tH = Math.round(0.4 * dpi);
+  const TW = Wpx + 2 * b, TH = Hpx + 2 * b + (p.tablet ? gap + tH : 0);
+  tooLarge(TW, TH);
+  const out = document.createElement('canvas'); out.width = TW; out.height = TH;
+  const octx = out.getContext('2d')!;
+  octx.fillStyle = p.borderType === 'black' ? '#000' : '#fff'; octx.fillRect(0, 0, TW, TH);
+  octx.drawImage(negativeImage(photo, Wpx, Hpx, bw, neg), b, b);
   if (p.tablet) drawTablet(octx, curve, b, b + Hpx + gap, Wpx, tH, p.tabletCorr, Math.round(tH * 0.28));
   return p.mirror ? mirrored(out) : out;
 }
+
+/** The contact sheet's layout for this photo, in inches. */
+export function photoSheet(p: PrintSettings, photo: Photo | null) {
+  const cp = photo ? cropPx(photo.src, photo.rot, photo.crop) : { w: 4, h: 5 };
+  return copiesLayout(p.sheet, cp.w / cp.h, p.border);
+}
+
+/** A sheet of copies of the negative, each with its label underneath, on the paper size. */
+function buildSheet(photo: Photo, p: PrintSettings, bw: Settings['bw'], neg: Uint8ClampedArray) {
+  const dpi = +p.dpi, L = photoSheet(p, photo);
+  if (L.error) throw new Error(L.error);
+  const px = (inches: number) => Math.round(inches * dpi), W = px(L.paper.w), H = px(L.paper.h);
+  tooLarge(W, H);
+  const out = document.createElement('canvas'); out.width = W; out.height = H;
+  const ctx = out.getContext('2d')!, black = p.borderType === 'black';
+  ctx.fillStyle = black ? '#000' : '#fff'; ctx.fillRect(0, 0, W, H);
+  const tile = negativeImage(photo, px(L.photo.w), px(L.photo.h), bw, neg), labels = sheetLabels(printedLabels(p.sheet), L.cells.length);
+  // Labels print as blue text on white paper with a black border (clear film), white text on blue with a clear one.
+  ctx.fillStyle = black ? '#fff' : '#000'; ctx.font = `${px(LABEL_TEXT)}px Helvetica,Arial,sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  L.cells.forEach((c, i) => {
+    ctx.drawImage(tile, px(c.x), px(c.y));
+    if (labels[i]) ctx.fillText(labels[i], px(c.x + L.photo.w / 2), px(c.y + L.photo.h + L.labelH / 2), px(L.photo.w));
+  });
+  return p.mirror ? mirrored(out) : out;
+}
+
 export function negativeName(name: string, p: PrintSettings, photo: Photo) {
+  const tail = `${p.dpi}dpi${p.mirror ? '_mirrored' : ''}.png`;
+  if (p.layout === 'sheet') {
+    const L = photoSheet(p, photo);
+    return `${name}_sheet_${L.cols}x${L.rows}_${L.photo.w.toFixed(1)}x${L.photo.h.toFixed(1)}in_on_${L.paper.w}x${L.paper.h}in_${tail}`;
+  }
   const { wIn, hIn } = printDims(p, photo);
-  return `${name}_negative_${wIn.toFixed(1)}x${hIn.toFixed(1)}in_${p.dpi}dpi${p.mirror ? '_mirrored' : ''}.png`;
+  return `${name}_negative_${wIn.toFixed(1)}x${hIn.toFixed(1)}in_${tail}`;
 }
 
 /** The simulated cyanotype print, for reference: up to `maxEdge` px on the long side, not mirrored. */

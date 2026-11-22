@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { aspectValue, drawStrip, predictedDistinct, renderCrop, renderView, type Crop } from '@/lib/negative-studio/canvas';
 import { clamp } from '@/lib/negative-studio/math';
-import { cyanotypePreview, download, jpeg, printDims } from '@/lib/negative-studio/output';
+import { cyanotypePreview, download, jpeg, photoSheet, printDims } from '@/lib/negative-studio/output';
 import type { View } from '@/lib/negative-studio/types';
 import { cn } from '@/lib/utils';
 import { BusyButton, IconButton, useBusy } from './controls';
@@ -86,6 +86,9 @@ const VIEWS: [View, string][] = [['orig', 'Original'], ['bw', 'B&W'], ['neg', 'N
 function ViewBar() {
   const { settings, setView, active, luts, canUndo, canRedo, undo, redo, unsaved, saveNegative, exportProject } = useStudio();
   const { wIn, hIn } = printDims(settings.print, active);
+  const sheet = settings.print.layout === 'sheet' ? photoSheet(settings.print, active) : null;
+  const prints = !sheet ? `${wIn.toFixed(1)} × ${hIn.toFixed(1)} in`
+    : sheet.error ? 'sheet doesn’t fit' : `${sheet.cells.length} copies at ${sheet.photo.w.toFixed(1)} × ${sheet.photo.h.toFixed(1)} in`;
   const [saving, run] = useBusy(), [storing, runStore] = useBusy(), [exporting, runExport] = useBusy();
   const mod = typeof navigator !== 'undefined' && /Mac|iP/.test(navigator.platform) ? '⌘' : 'Ctrl+';
   function savePreview() {
@@ -102,7 +105,7 @@ function ViewBar() {
         {VIEWS.map(([v, l]) => <ToggleGroupItem key={v} value={v} className="px-3 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground">{l}</ToggleGroupItem>)}
       </ToggleGroup>
       {active && <>
-        <span className="ml-auto truncate text-xs text-muted-foreground">{active.name} · prints {wIn.toFixed(1)} × {hIn.toFixed(1)} in</span>
+        <span className="ml-auto truncate text-xs text-muted-foreground">{active.name} · prints {prints}</span>
         <BusyButton busy={saving} icon={<Download />} variant="outline" size="sm" onClick={savePreview}
           title="Save the simulated cyanotype print as a JPEG, for reference">Save preview</BusyButton>
         <IconButton label="Download a project file (the original photo and its edits)" size="icon-sm" variant="outline" disabled={exporting}
