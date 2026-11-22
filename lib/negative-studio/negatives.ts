@@ -9,6 +9,12 @@ import { DEFAULT_SETTINGS, mergeSettings, type Settings } from './types';
 export const PHOTO_KEYS = ['aspect', 'bw', 'tone', 'curve', 'curveAuto', 'print'] as const;
 export type PhotoSettings = Pick<Settings, typeof PHOTO_KEYS[number]>;
 export const photoSettings = (s: Settings) => structuredClone(Object.fromEntries(PHOTO_KEYS.map(k => [k, s[k]]))) as PhotoSettings;
+/**
+ * A tab's edits as saved in this browser, over `base` for anything missing. Tabs saved by an
+ * older version lack newer settings (e.g. the print sheet), which get their defaults.
+ */
+export const restoredPhotoSettings = (saved: unknown, base: PhotoSettings) =>
+  photoSettings(mergeSettings({ ...base, ...(saved && typeof saved === 'object' ? saved : {}) }));
 
 export type NegativeRecipe = {
   version: 1;
