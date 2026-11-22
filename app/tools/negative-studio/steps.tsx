@@ -12,8 +12,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { buildNegative, download, negativeName, pngWithDpi, printDims, printInWindow } from '@/lib/negative-studio/output';
+import { buildNegative, download, negativeName, photoSheet, pngWithDpi, printDims, printInWindow } from '@/lib/negative-studio/output';
+import { PAPERS, printedLabels, sheetLabels, type ContactSheet, type Paper, type SheetLayout } from '@/lib/negative-studio/sheet';
 import { DEFAULT_SETTINGS, type Settings } from '@/lib/negative-studio/types';
 import { cn } from '@/lib/utils';
 import { EditProfileDialog } from './calibration-dialog';
@@ -325,35 +327,46 @@ function PrintStep() {
   const s = useStudio(), { settings: { print: p, bw }, active, luts, curve } = s;
   const ids = { width: useId(), dpi: useId(), border: useId(), type: useId(), mirror: useId(), tablet: useId(), corr: useId() };
   const [saving, runSave] = useBusy(), [printing, runPrint] = useBusy();
+  const sheet = p.layout === 'sheet', layout = sheet ? photoSheet(p, active) : null;
   const { wIn, hIn, Wpx, Hpx } = printDims(p, active), tw = wIn + 2 * p.border, th = hIn + 2 * p.border + (p.tablet ? 0.55 : 0);
 
   function savePng() {
     if (!active) return toast('Open a photo first.');
+    if (layout?.error) return toast.error(layout.error);
     runSave(async () => download(await pngWithDpi(buildNegative(active, p, bw, luts.neg, curve), +p.dpi), negativeName(active.name, p, active)));
   }
   function printNow() {
     if (!active) return toast('Open a photo first.');
+    if (layout?.error) return toast.error(layout.error);
     const win = window.open('', '_blank');
     if (!win) return toast.error('Allow pop-ups for this site to print.');
-    runPrint(() => printInWindow(win, buildNegative(active, p, bw, luts.neg, curve), +p.dpi, 'Negative', '0.25in'));
+    runPrint(() => printInWindow(win, buildNegative(active, p, bw, luts.neg, curve), +p.dpi, 'Negative', sheet ? '0' : '0.25in'));
   }
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-x-2 gap-y-3">
-        <Field label="Image width (inches)" htmlFor={ids.width}>
+      <ToggleGroup
+        type="single" variant="outline" size="sm" className="mb-3 w-full" value={p.layout} aria-label="Layout"
+        onValueChange={v => v && s.setPrint({ layout: v as typeof p.layout })}
+      >
+        <ToggleGroupItem value="single" className="flex-1">One photo</ToggleGroupItem>
+        <ToggleGroupItem value="sheet" className="flex-1">Sheet of copies</ToggleGroupItem>
+      </ToggleGroup>
+      {sheet && <SheetFields />}
+      <div className={cn('grid grid-cols-2 gap-x-2 gap-y-3', sheet && 'mt-3')}>
+        {!sheet && <Field label="Image width (inches)" htmlFor={ids.width}>
           <NumberField id={ids.width} min={1} max={40} step={0.25} value={p.width} onChange={width => s.setPrint({ width })} />
-        </Field>
+        </Field>}
         <Field label="Resolution" htmlFor={ids.dpi}>
           <Select value={String(p.dpi)} onValueChange={v => s.setPrint({ dpi: +v })}>
             <SelectTrigger id={ids.dpi} className="w-full"><SelectValue /></SelectTrigger>
             <SelectContent>{[300, 360, 600, 720].map(d => <SelectItem key={d} value={String(d)}>{d} dpi</SelectItem>)}</SelectContent>
           </Select>
         </Field>
-        <Field label="Border (inches)" htmlFor={ids.border}>
+        <Field label={sheet ? 'Margin (inches)' : 'Border (inches)'} htmlFor={ids.border}>
           <NumberField id={ids.border} min={0} max={3} step={0.125} value={p.border} onChange={border => s.setPrint({ border })} />
         </Field>
-        <Field label="Border type" htmlFor={ids.type}>
+        <Field label={sheet ? 'Background' : 'Border type'} htmlFor={ids.type} className={cn(sheet && 'col-span-2')}>
           <Select value={p.borderType} onValueChange={v => s.setPrint({ borderType: v as typeof p.borderType })}>
             <SelectTrigger id={ids.type} className="w-full"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -363,17 +376,21 @@ function PrintStep() {
           </Select>
         </Field>
       </div>
-      <Tip className="mt-2.5">
-        {active ? <>
-          Image {wIn.toFixed(2)} × {hIn.toFixed(2)} in ({(wIn * 2.54).toFixed(1)} × {(hIn * 2.54).toFixed(1)} cm) · {Wpx} × {Hpx} px<br />
-          Whole negative incl. border{p.tablet ? ' & tablet' : ''}: {tw.toFixed(2)} × {th.toFixed(2)} in
-        </> : 'Open a photo to see print sizes.'}
-      </Tip>
+      {layout ? <SheetSummary layout={layout} labels={printedLabels(p.sheet)} black={p.borderType === 'black'} /> : (
+        <Tip className="mt-2.5">
+          {active ? <>
+            Image {wIn.toFixed(2)} × {hIn.toFixed(2)} in ({(wIn * 2.54).toFixed(1)} × {(hIn * 2.54).toFixed(1)} cm) · {Wpx} × {Hpx} px<br />
+            Whole negative incl. border{p.tablet ? ' & tablet' : ''}: {tw.toFixed(2)} × {th.toFixed(2)} in
+          </> : 'Open a photo to see print sizes.'}
+        </Tip>
+      )}
       <CheckRow id={ids.mirror} checked={p.mirror} onChange={mirror => s.setPrint({ mirror })}>Mirror (flip) for printing — ink side touches the paper</CheckRow>
-      <CheckRow id={ids.tablet} checked={p.tablet} onChange={tablet => s.setPrint({ tablet })}>Add a 21-step tablet below the image</CheckRow>
-      <CheckRow id={ids.corr} checked={p.tabletCorr} onChange={tabletCorr => s.setPrint({ tabletCorr })} disabled={!p.tablet} className="pl-6">
-        Apply the curve to the tablet (prints as even steps when calibrated)
-      </CheckRow>
+      {!sheet && <>
+        <CheckRow id={ids.tablet} checked={p.tablet} onChange={tablet => s.setPrint({ tablet })}>Add a 21-step tablet below the image</CheckRow>
+        <CheckRow id={ids.corr} checked={p.tabletCorr} onChange={tabletCorr => s.setPrint({ tabletCorr })} disabled={!p.tablet} className="pl-6">
+          Apply the curve to the tablet (prints as even steps when calibrated)
+        </CheckRow>
+      </>}
       <div className="mt-3 flex flex-wrap gap-1.5">
         <BusyButton busy={saving} icon={<Download />} onClick={savePng}>Save negative (PNG)</BusyButton>
         <BusyButton busy={printing} icon={<Printer />} variant="outline" onClick={printNow}>Print…</BusyButton>
@@ -382,5 +399,110 @@ function PrintStep() {
         <b>Printing tips:</b> print on inkjet transparency film, on the rough (coated) side. Use your printer&apos;s best quality, <b>colour</b> mode (not greyscale), and turn colour management off (&ldquo;Printer manages colours&rdquo; or &ldquo;No colour adjustment&rdquo;). Always print negatives with the same settings you used for your calibration tablet. Let the ink dry before contact printing.
       </Tip>
     </>
+  );
+}
+
+/** Paper, how to fill it, and labels, for a sheet of copies. */
+function SheetFields() {
+  const s = useStudio(), sh = s.settings.print.sheet;
+  const ids = { paper: useId(), turn: useId(), w: useId(), h: useId(), cols: useId(), rows: useId(), photo: useId(), gap: useId(), show: useId(), labels: useId() };
+  const set = (patch: Partial<ContactSheet>) => s.setPrint({ sheet: { ...sh, ...patch } });
+  return (
+    <>
+      <Tip>Copies of this photo on one negative, e.g. to cut up and tone each piece for a different time. They keep the crop&apos;s shape (5:7, 2:3…).</Tip>
+      <div className="mt-3 grid grid-cols-2 gap-x-2 gap-y-3">
+        <Field label="Paper size" htmlFor={ids.paper} help={<>
+          <h4>Paper size</h4>
+          <p>The size of the whole negative: usually your transparency film (Letter, A4), or your cyanotype paper if it&apos;s smaller.</p>
+        </>}>
+          <Select value={sh.paper} onValueChange={v => set({ paper: v as Paper })}>
+            <SelectTrigger id={ids.paper} className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {Object.entries(PAPERS).map(([k, v]) => <SelectItem key={k} value={k}>{v.label}</SelectItem>)}
+              <SelectItem value="custom">Custom…</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field label="Orientation" htmlFor={ids.turn}>
+          <Select value={sh.landscape ? 'landscape' : 'portrait'} onValueChange={v => set({ landscape: v === 'landscape' })}>
+            <SelectTrigger id={ids.turn} className="w-full"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="portrait">Portrait</SelectItem>
+              <SelectItem value="landscape">Landscape</SelectItem>
+            </SelectContent>
+          </Select>
+        </Field>
+        {sh.paper === 'custom' && <>
+          <Field label="Paper width (in)" htmlFor={ids.w}>
+            <NumberField id={ids.w} min={1} max={40} step={0.25} value={sh.paperW} onChange={paperW => set({ paperW })} />
+          </Field>
+          <Field label="Paper height (in)" htmlFor={ids.h}>
+            <NumberField id={ids.h} min={1} max={40} step={0.25} value={sh.paperH} onChange={paperH => set({ paperH })} />
+          </Field>
+        </>}
+      </div>
+      <ToggleGroup
+        type="single" variant="outline" size="sm" className="mt-3 w-full" value={sh.fit} aria-label="How to fill the sheet"
+        onValueChange={v => v && set({ fit: v as ContactSheet['fit'] })}
+      >
+        <ToggleGroupItem value="grid" className="flex-1">Number of photos</ToggleGroupItem>
+        <ToggleGroupItem value="size" className="flex-1">Photo size</ToggleGroupItem>
+      </ToggleGroup>
+      <div className="mt-3 grid grid-cols-2 gap-x-2 gap-y-3">
+        {sh.fit === 'grid' ? <>
+          <Field label="Across" htmlFor={ids.cols}>
+            <NumberField id={ids.cols} min={1} max={20} step={1} value={sh.cols} onChange={cols => set({ cols: Math.round(cols) })} />
+          </Field>
+          <Field label="Down" htmlFor={ids.rows}>
+            <NumberField id={ids.rows} min={1} max={20} step={1} value={sh.rows} onChange={rows => set({ rows: Math.round(rows) })} />
+          </Field>
+        </> : (
+          <Field label="Photo width (in)" htmlFor={ids.photo}>
+            <NumberField id={ids.photo} min={0.5} max={40} step={0.25} value={sh.photoW} onChange={photoW => set({ photoW })} />
+          </Field>
+        )}
+        <Field label="Space between (in)" htmlFor={ids.gap}>
+          <NumberField id={ids.gap} min={0} max={3} step={0.125} value={sh.gap} onChange={gap => set({ gap })} />
+        </Field>
+      </div>
+      <CheckRow id={ids.show} checked={sh.showLabels} onChange={showLabels => set({ showLabels })} className="mt-3">
+        Include time labels under the photos
+      </CheckRow>
+      {sh.showLabels && (
+        <Field label="Labels" htmlFor={ids.labels} className="mt-2.5" help={<>
+          <h4>Labels</h4>
+          <p>Printed under each photo, in order (left to right, top to bottom), separated by commas.</p>
+          <p>Numbers pick up the unit after the last one: <b>0, 15, 30, 60, 90 min</b> labels them 0 min, 15 min…</p>
+        </>}>
+          <Input id={ids.labels} value={sh.labels} placeholder="e.g. 0, 15, 30, 60, 90 min" onChange={e => set({ labels: e.target.value })} />
+        </Field>
+      )}
+    </>
+  );
+}
+
+/** The sheet's numbers, and a small drawing of it. */
+function SheetSummary({ layout: L, labels, black }: { layout: SheetLayout; labels: string; black: boolean }) {
+  if (L.error) return <Tip className="mt-2.5 text-destructive">{L.error}</Tip>;
+  const n = L.cells.length, { w, h } = L.photo, names = sheetLabels(labels, n);
+  const scale = 150 / Math.max(L.paper.w, L.paper.h);
+  return (
+    <div className="mt-2.5 flex items-start gap-3">
+      <svg
+        width={L.paper.w * scale} height={L.paper.h * scale} viewBox={`0 0 ${L.paper.w} ${L.paper.h}`} role="img"
+        aria-label={`Sheet preview: ${n} photos on ${L.paper.w} × ${L.paper.h} in`}
+        className="shrink-0 rounded-sm border" style={{ background: black ? '#fff' : '#3a5f9e' }}
+      >
+        {L.cells.map((c, i) => <g key={i}>
+          <rect x={c.x} y={c.y} width={w} height={h} fill="#7d9bc9" />
+          {names[i] && <text x={c.x + w / 2} y={c.y + h + L.labelH * 0.68} fontSize={L.labelH * 0.7} textAnchor="middle" fill={black ? '#3a5f9e' : '#fff'}>{names[i]}</text>}
+        </g>)}
+      </svg>
+      <Tip className="m-0">
+        <b>{n} photo{n === 1 ? '' : 's'}</b> ({L.cols} across × {L.rows} down)<br />
+        Each {w.toFixed(2)} × {h.toFixed(2)} in ({(w * 2.54).toFixed(1)} × {(h * 2.54).toFixed(1)} cm)<br />
+        On {L.paper.w} × {L.paper.h} in{n > 1 && labels.trim() && names.filter(Boolean).length < n ? <><br />{n - names.filter(Boolean).length} without a label</> : null}
+      </Tip>
+    </div>
   );
 }

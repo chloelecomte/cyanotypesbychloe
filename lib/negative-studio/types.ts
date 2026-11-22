@@ -1,11 +1,15 @@
 import type { Pt, RGB } from './math';
 import type { NegativeRecipe } from './negatives';
 import type { ProcessModel, Tone } from './pipeline';
+import { DEFAULT_SHEET, type ContactSheet } from './sheet';
 
 export type View = 'orig' | 'bw' | 'neg' | 'cyan' | 'compare';
 export type PrintSettings = {
   width: number; dpi: number; border: number; borderType: 'black' | 'clear';
   mirror: boolean; tablet: boolean; tabletCorr: boolean;
+  /** One photo, or a sheet of copies of it (for toning tests…). */
+  layout: 'single' | 'sheet';
+  sheet: ContactSheet;
 };
 export type CurveState = { curve: Pt[] | null; curveAuto: boolean };
 
@@ -70,7 +74,7 @@ export const DEFAULT_SETTINGS: Settings = {
   profile: 'model',
   model: { exposure: 0, range: 0.75 },
   view: 'cyan', split: 0.5,
-  print: { width: 8, dpi: 360, border: 0.5, borderType: 'black', mirror: true, tablet: true, tabletCorr: true },
+  print: { width: 8, dpi: 360, border: 0.5, borderType: 'black', mirror: true, tablet: true, tabletCorr: true, layout: 'single', sheet: { ...DEFAULT_SHEET } },
   curveByProfile: {},
 };
 
