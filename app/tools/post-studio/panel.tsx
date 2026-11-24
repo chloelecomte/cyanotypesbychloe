@@ -28,6 +28,9 @@ export function Panel({ s }: { s: PostState }) {
   const { design: d } = s;
   return (
     <div className="p-4">
+      <PhotoTray s={s} />
+
+      <SubHeading className="mt-5">Kind of post</SubHeading>
       <ToggleGroup
         type="single" variant="outline" className="w-full" value={d.mode} aria-label="Kind of post"
         onValueChange={v => {
@@ -81,7 +84,6 @@ export function Panel({ s }: { s: PostState }) {
         </label>
       </div>
 
-      <PhotoTray s={s} />
       <ExportControls s={s} />
     </div>
   );
@@ -236,7 +238,7 @@ function PhotoTray({ s }: { s: PostState }) {
     : s.selected != null ? cells[s.selected]?.photoId : null;
   const current = (currentId != null && s.photoMap.get(currentId)) || (photos.length === 1 ? photos[0] : null);
   return <>
-    <SubHeading className="mt-5 flex items-center">
+    <SubHeading className="mt-0 flex items-center">
       Photos{photos.length > 0 && ` · ${photos.length}`}
       <Button variant="ghost" size="sm" className="ml-auto h-6 normal-case tracking-normal" onClick={() => input.current?.click()}><Plus />Add</Button>
     </SubHeading>

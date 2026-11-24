@@ -135,22 +135,26 @@ function ShapeStep({ orig, view, fix, set, found }: {
   orig: Original; view: Pixels; fix: Fix; set: (p: Partial<Fix>) => void; found: Quad | null;
 }) {
   const area = useRef<HTMLDivElement>(null), loupe = useRef<HTMLCanvasElement>(null);
-  const preview = useRef<HTMLCanvasElement>(null);
+  const preview = useRef<HTMLCanvasElement>(null), previewArea = useRef<HTMLDivElement>(null);
   const pad = 28; // room around the photo, so the corners can be grabbed right at its edges
   const scale = useFit(area, orig.w, orig.h, pad).scale;
   const q = fix.quad ?? wholeImage(orig.w, orig.h);
   const [drag, setDrag] = useState<number | null>(null);
   const measured = fix.quad ? measureRatio(fix.quad, orig.w, orig.h) : orig.w / orig.h, papers = nearestPaper(measured);
 
-  // A small preview of the straightened result.
+  // The straightened result beside the photo, kept up to date as the corners move: a quick, smaller
+  // version while dragging, then a sharp one when you let go.
+  const ratio = fixRatio(fix, orig.w, orig.h);
+  const shown = useFit(previewArea, ratio, 1, 16);
+  const size = Math.max(shown.w, shown.h) * (typeof devicePixelRatio === 'number' ? Math.min(2, devicePixelRatio) : 1);
   useEffect(() => {
-    if (!preview.current || drag != null) return;
+    if (!preview.current || !size) return;
     const id = requestAnimationFrame(() => {
-      const small = straightened(view, fix, orig.w, orig.h, 320);
-      if (preview.current) toCanvas(small, preview.current);
+      const out = straightened(view, fix, orig.w, orig.h, Math.min(drag != null ? 500 : 1400, size));
+      if (preview.current) toCanvas(out, preview.current);
     });
     return () => cancelAnimationFrame(id);
-  }, [view, fix, orig, drag]);
+  }, [view, fix, orig, drag, size]);
 
   // The loupe: a close-up of the corner being dragged, from the full-size photo.
   useEffect(() => {
@@ -197,8 +201,9 @@ function ShapeStep({ orig, view, fix, set, found }: {
   const names = ['top-left', 'top-right', 'bottom-right', 'bottom-left'];
 
   return (
-    <div className="grid min-h-0 flex-1 md:grid-cols-[1fr_290px]">
-      <div ref={area} className="relative grid min-h-[45vh] place-items-center overflow-hidden bg-muted/60">
+    <div className="grid min-h-0 flex-1 md:grid-cols-[1fr_1fr_290px]">
+      <div ref={area} className="relative grid min-h-[35vh] place-items-center overflow-hidden bg-muted/60">
+        <span className="pointer-events-none absolute top-2 left-2 z-10 rounded bg-black/60 px-2 py-0.5 text-xs text-white">Your photo · drag the corners</span>
         {scale > 0 && (
           <div className="relative" style={{ width: W + 2 * pad, height: H + 2 * pad }}>
             <canvas ref={el => { if (el && el.width !== view.width) toCanvas(view, el); }} className="absolute" style={{ left: pad, top: pad, width: W, height: H }} />
@@ -219,14 +224,19 @@ function ShapeStep({ orig, view, fix, set, found }: {
           </div>
         )}
         {drag != null && (
-          <canvas ref={loupe} width={150} height={150} className={cn('pointer-events-none absolute top-3 size-[150px] rounded-full border-2 border-cyan-300 shadow-lg', leftHalf ? 'right-3' : 'left-3')} />
+          <canvas ref={loupe} width={150} height={150} className={cn('pointer-events-none absolute top-9 size-[150px] rounded-full border-2 border-cyan-300 shadow-lg', leftHalf ? 'right-3' : 'left-3')} />
         )}
+      </div>
+
+      <div ref={previewArea} className="relative grid min-h-[35vh] place-items-center overflow-hidden border-t bg-muted/60 md:border-t-0 md:border-l">
+        <span className="pointer-events-none absolute top-2 left-2 z-10 rounded bg-black/60 px-2 py-0.5 text-xs text-white">Straightened &amp; cropped</span>
+        {shown.w > 0 && <canvas ref={preview} className="shadow-md" style={{ width: shown.w, height: shown.h }} />}
       </div>
 
       <aside className="overflow-y-auto border-t p-4 md:border-t-0 md:border-l">
         <Tip>
           {found || fix.quad
-            ? <>Drag the four corners onto the corners of your print (a close-up appears as you drag; arrow keys nudge a selected corner). The photo is squared up from them, so it doesn’t matter how it was tilted.</>
+            ? <>Drag the four corners on the left onto the corners of your print (a close-up appears as you drag; arrow keys nudge a selected corner). The photo is squared up from them, so it doesn’t matter how it was tilted.</>
             : <>Using the whole photo, as for a scan. To straighten a photo of a print, drag the four corners onto the print’s corners.</>}
         </Tip>
 
@@ -256,11 +266,7 @@ function ShapeStep({ orig, view, fix, set, found }: {
           {found && <Button variant="ghost" size="sm" onClick={() => set({ quad: found, trim: DEFAULT_FIX.trim })}><ScanSearch />Back to the corners found</Button>}
           {fix.quad && <Button variant="ghost" size="sm" onClick={() => set({ quad: null, trim: 0, ratio: 'auto' })}><Maximize />Use the whole photo (a scan)</Button>}
         </div>
-
-        <SubHeading>Result</SubHeading>
-        <div className="grid place-items-center rounded-md bg-muted/60 p-2">
-          <canvas ref={preview} className="max-h-60 max-w-full" style={{ aspectRatio: String(fixRatio(fix, orig.w, orig.h)) }} />
-        </div>
+        <Tip className="mt-3">Check the result in the middle: there should be no table along its edges. Then go on to the colour.</Tip>
       </aside>
     </div>
   );
