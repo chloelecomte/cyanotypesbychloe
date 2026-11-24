@@ -6,7 +6,10 @@ import { Toaster } from '@/components/ui/sonner';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { boxAt, boxForPhoto, layoutBoxes, newBox, refill, splitBox, type Box, type Carousel, type Frame, type LayoutId } from '@/lib/post-studio/carousel';
 import { format, gridFor, NO_VIEW, type FormatId, type View } from '@/lib/post-studio/layout';
+import type { Fix, Original } from '@/lib/post-studio/fix';
+import { thumbOf } from '@/lib/post-studio/fix';
 import { decodePhoto, type Cell, type Design, type ExportSettings, type Photo } from '@/lib/post-studio/render';
+import { FixDialog } from './fix-dialog';
 import { Panel } from './panel';
 import { Stage } from './stage';
 
@@ -54,6 +57,7 @@ function Studio() {
         </aside>
         <Stage s={s} />
       </div>
+      <FixDialog photo={s.fixing != null ? s.photoMap.get(s.fixing) ?? null : null} onClose={() => s.setFixing(null)} onApply={s.applyFix} onRevert={s.revertFix} />
       <Toaster position="bottom-right" />
     </TooltipProvider>
   );
@@ -76,6 +80,7 @@ function usePostState() {
   });
   const [selectedFrame, setSelectedFrame] = useState<number | null>(null);
   const [cropping, setCropping] = useState<number | null>(null);
+  const [fixing, setFixing] = useState<number | null>(null);
 
   // Settings (not photos) are remembered in this browser.
   useEffect(() => {
@@ -252,9 +257,33 @@ function usePostState() {
   const zoomCell = (i: number, by: number) => setCell(i, c => ({ ...c, zoom: Math.min(5, Math.max(1, c.zoom * by)) }));
   const clearCell = (i: number) => setCell(i, () => EMPTY);
 
+  /** Swaps in the straightened and edited photo, keeping the original so it can be edited again or restored. */
+  async function applyFix(id: number, original: Original, fix: Fix, out: HTMLCanvasElement) {
+    const thumb = await thumbOf(out);
+    setPhotos(ps => ps.map(p => {
+      if (p.id !== id) return p;
+      if (p.original) URL.revokeObjectURL(p.thumb); // the previous edit's thumbnail
+      return { ...p, src: out, w: out.width, h: out.height, thumb, original, fix };
+    }));
+  }
+  function revertFix(id: number) {
+    setPhotos(ps => ps.map(p => {
+      if (p.id !== id || !p.original) return p;
+      URL.revokeObjectURL(p.thumb);
+      const { src, w, h, thumb } = p.original;
+      return { id: p.id, name: p.name, src, w, h, thumb };
+    }));
+  }
+
   function removePhoto(id: number) {
     const p = photoMap.get(id);
-    if (p) { URL.revokeObjectURL(p.thumb); if ('close' in p.src) (p.src as ImageBitmap).close(); }
+    if (p) {
+      URL.revokeObjectURL(p.thumb);
+      const first = p.original?.src ?? p.src;
+      if (p.original) URL.revokeObjectURL(p.original.thumb);
+      if ('close' in first) (first as ImageBitmap).close();
+    }
+    if (fixing === id) setFixing(null);
     setPhotos(ps => ps.filter(q => q.id !== id));
     setCells(prev => prev.map(c => (c.photoId === id ? EMPTY : c)));
     setFrames(fs => fs.map(f => (f.photoId === id ? { ...f, photoId: null, ...NO_VIEW } : f)));
@@ -290,7 +319,7 @@ function usePostState() {
     addFiles, assign, fitGrid, setView, zoomCell, clearCell, removePhoto, placeFromTray, clearCells: () => setCells([]),
     setFormat, frames, selectedFrame, setSelectedFrame, cropping, setCropping,
     setCarousel, setBox, setFrameView, zoomFrame, clearFrame, addFrame, removeFrame, restack, assignFrame,
-    splitFrame, fitFrameToPhoto, fullHeight, addFrameAt, shuffle,
+    splitFrame, fitFrameToPhoto, fullHeight, addFrameAt, shuffle, fixing, setFixing, applyFix, revertFix,
   };
 }
 

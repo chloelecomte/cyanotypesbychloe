@@ -1,9 +1,14 @@
 // Loading photos and drawing the post, for the preview and at full size for export.
 import { encode, renderPanel } from '@/lib/panels/panels';
+import type { Fix, Original } from './fix';
 import { frameRect, type Carousel, type Frame } from './carousel';
 import { format, gridRects, place, type Fit, type FormatId, type Grid, type Rect, type View } from './layout';
 
-export type Photo = { id: number; name: string; src: CanvasImageSource; w: number; h: number; thumb: string };
+export type Photo = {
+  id: number; name: string; src: CanvasImageSource; w: number; h: number; thumb: string;
+  /** Set once the photo has been straightened or edited: the photo as opened, and what was done to it. */
+  original?: Original; fix?: Fix;
+};
 
 /**
  * Largest side kept in memory. A single post is at most 3240 px wide, so more never shows; only a photo
