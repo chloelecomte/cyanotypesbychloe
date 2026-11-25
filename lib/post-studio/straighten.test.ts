@@ -87,6 +87,16 @@ describe('detectQuad', () => {
     const rough = q.map((p, i) => ({ x: p.x + (i % 2 ? 5 : -4), y: p.y + (i < 2 ? -5 : 4) })) as Quad;
     snapEdges(photo(), rough).forEach((p, i) => { expect(Math.abs(p.x - q[i].x)).toBeLessThan(1); expect(Math.abs(p.y - q[i].y)).toBeLessThan(1); });
   });
+  it('isn\'t split by a band of blue as bright as the table', () => {
+    const img = photo();
+    // Sea running right across the print, the same brightness as the grey table.
+    for (let y = 300; y < 330; y++) for (let x = 0; x < img.width; x++) {
+      if (inside(q, { x: x + 0.5, y: y + 0.5 })) img.data.set([95, 125, 160], (y * img.width + x) * 4);
+    }
+    const found = detectQuad(img)!;
+    expect(found).not.toBeNull();
+    found.forEach((p, i) => { expect(Math.abs(p.x - q[i].x)).toBeLessThan(2.5); expect(Math.abs(p.y - q[i].y)).toBeLessThan(2.5); });
+  });
   it('finds nothing in a photo that is all print', () => {
     const img = fill(400, 500, [228, 232, 220]);
     for (let y = 150; y < 380; y++) for (let x = 100 + (y % 40); x < 300; x++) img.data.set([20, 55, 110], (y * 400 + x) * 4);

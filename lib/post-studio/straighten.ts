@@ -56,9 +56,14 @@ export function detectQuad(img: Pixels): Quad | null {
   const bg = [med(rs), med(gs), med(bs)];
 
   // How far each pixel is from the background, split into paper / not paper by Otsu's threshold.
+  // Colour counts for more than brightness: a mid-blue in a print can be as bright as a grey table,
+  // but the table is never that blue.
+  const opp = (r: number, g: number, b: number) => [0.3 * r + 0.59 * g + 0.11 * b, r - g, (r + g) / 2 - b];
+  const ob = opp(bg[0], bg[1], bg[2]);
   const d = new Uint8Array(n), hist = new Float64Array(256);
   for (let i = 0; i < n; i++) {
-    const v = Math.min(255, Math.round(Math.hypot(data[i * 4] - bg[0], data[i * 4 + 1] - bg[1], data[i * 4 + 2] - bg[2]) * 0.75));
+    const o = opp(data[i * 4], data[i * 4 + 1], data[i * 4 + 2]);
+    const v = Math.min(255, Math.round(Math.sqrt((o[0] - ob[0]) ** 2 + 2.5 * ((o[1] - ob[1]) ** 2 + (o[2] - ob[2]) ** 2)) * 0.75));
     d[i] = v; hist[v]++;
   }
   const t = Math.max(18, otsu(hist, n));
@@ -67,6 +72,21 @@ export function detectQuad(img: Pixels): Quad | null {
   // An opening wipes out thin things like veins in a countertop or the grain of a table.
   const r = Math.max(1, Math.round(Math.min(w, h) / 250));
   mask = dilate(erode(mask, w, h, r), w, h, r);
+  // The table is whatever background is reachable from the photo's edges; anything it can't reach
+  // (the paper, and every tone inside it, however table-like) is paper.
+  const table = new Uint8Array(n), stack = new Int32Array(n);
+  let top = 0;
+  const seed = (i: number) => { if (!mask[i] && !table[i]) { table[i] = 1; stack[top++] = i; } };
+  for (let x = 0; x < w; x++) { seed(x); seed((h - 1) * w + x); }
+  for (let y = 0; y < h; y++) { seed(y * w); seed(y * w + w - 1); }
+  while (top) {
+    const i = stack[--top], x = i % w;
+    if (x > 0) seed(i - 1);
+    if (x < w - 1) seed(i + 1);
+    if (i >= w) seed(i - w);
+    if (i < n - w) seed(i + w);
+  }
+  for (let i = 0; i < n; i++) mask[i] = table[i] ? 0 : 1;
 
   const comp = largestComponent(mask, w, h);
   if (!comp || comp.size < n * 0.08 || comp.size > n * 0.97) return null;

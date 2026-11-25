@@ -37,14 +37,7 @@ function Editor({ photo, onClose, onApply, onRevert }: { photo: Photo; onClose: 
   // Everything starts from the photo as it was opened, however many times it's been edited since.
   const [orig] = useState<Original>(() => photo.original ?? { src: photo.src, w: photo.w, h: photo.h, thumb: photo.thumb });
   const [view] = useState(() => pixelsOf(orig.src, orig.w, orig.h, 1600));
-  const [found] = useState<Quad | null>(() => {
-    if (photo.fix) return null;
-    // Found roughly on a small copy, then the edges are placed exactly on the 1600 px one.
-    const small = pixelsOf(orig.src, orig.w, orig.h, 500), rough = detectQuad(small);
-    if (!rough) return null;
-    const up = view.width / small.width, s = orig.w / view.width;
-    return snapEdges(view, rough.map(p => ({ x: p.x * up, y: p.y * up })) as Quad).map(p => ({ x: p.x * s, y: p.y * s })) as Quad;
-  });
+  const [found] = useState<Quad | null>(() => (photo.fix ? null : findCorners(orig, view)));
   const [fix, setFix] = useState<Fix>(() => photo.fix ?? {
     ...DEFAULT_FIX, quad: found, trim: found ? DEFAULT_FIX.trim : 0, ratio: found ? lastPaper() : 'auto',
   });
@@ -88,7 +81,7 @@ function Editor({ photo, onClose, onApply, onRevert }: { photo: Photo; onClose: 
     </DialogHeader>
 
     {step === 'shape'
-      ? <ShapeStep orig={orig} view={view} fix={fix} set={set} found={found} />
+      ? <ShapeStep orig={orig} view={view} fix={fix} set={set} />
       : <ColourStep base={base} edit={fix.edit} setEdit={setEdit} />}
 
     <div className="flex flex-wrap items-center gap-2 border-t px-4 py-3">
@@ -131,8 +124,16 @@ function useFit(ref: React.RefObject<HTMLElement | null>, w: number, h: number, 
   return { scale: s, w: Math.floor(w * s), h: Math.floor(h * s) };
 }
 
-function ShapeStep({ orig, view, fix, set, found }: {
-  orig: Original; view: Pixels; fix: Fix; set: (p: Partial<Fix>) => void; found: Quad | null;
+/** The paper's corners in the original's pixels: found roughly on a small copy, then placed exactly on `view`. */
+function findCorners(orig: Original, view: Pixels): Quad | null {
+  const small = pixelsOf(orig.src, orig.w, orig.h, 500), rough = detectQuad(small);
+  if (!rough) return null;
+  const up = view.width / small.width, s = orig.w / view.width;
+  return snapEdges(view, rough.map(p => ({ x: p.x * up, y: p.y * up })) as Quad).map(p => ({ x: p.x * s, y: p.y * s })) as Quad;
+}
+
+function ShapeStep({ orig, view, fix, set }: {
+  orig: Original; view: Pixels; fix: Fix; set: (p: Partial<Fix>) => void;
 }) {
   const area = useRef<HTMLDivElement>(null), loupe = useRef<HTMLCanvasElement>(null);
   const preview = useRef<HTMLCanvasElement>(null), previewArea = useRef<HTMLDivElement>(null);
@@ -195,6 +196,16 @@ function ShapeStep({ orig, view, fix, set, found }: {
     set({ quad: next });
   }
 
+  /** Runs the corner finding again, from scratch. */
+  function findAgain() {
+    const q = findCorners(orig, view);
+    if (!q) {
+      toast('Couldn’t find the paper’s edges', { description: 'Drag the four corners onto the corners of your print instead.' });
+      return;
+    }
+    set({ quad: q, trim: Math.max(fix.trim, DEFAULT_FIX.trim), ratio: fix.quad ? fix.ratio : lastPaper() });
+  }
+
   const W = orig.w * scale, H = orig.h * scale;
   const pts = q.map(p => `${pad + p.x * scale},${pad + p.y * scale}`).join(' ');
   const r = 11, leftHalf = drag != null && q[drag].x < orig.w / 2;
@@ -235,9 +246,9 @@ function ShapeStep({ orig, view, fix, set, found }: {
 
       <aside className="overflow-y-auto border-t p-4 md:border-t-0 md:border-l">
         <Tip>
-          {found || fix.quad
+          {fix.quad
             ? <>Drag the four corners on the left onto the corners of your print (a close-up appears as you drag; arrow keys nudge a selected corner). The photo is squared up from them, so it doesn’t matter how it was tilted.</>
-            : <>Using the whole photo, as for a scan. To straighten a photo of a print, drag the four corners onto the print’s corners.</>}
+            : <>Using the whole photo, as for a scan. To straighten a photo of a print, use <b>Find the corners</b>, or drag the four corners onto the print’s corners.</>}
         </Tip>
 
         <SubHeading>Paper size</SubHeading>
@@ -263,7 +274,7 @@ function ShapeStep({ orig, view, fix, set, found }: {
           <Button variant="outline" size="sm" onClick={() => fix.quad && set({ quad: turnQuad(fix.quad) })} disabled={!fix.quad}>
             <RotateCw />Turn a quarter turn
           </Button>
-          {found && <Button variant="ghost" size="sm" onClick={() => set({ quad: found, trim: DEFAULT_FIX.trim })}><ScanSearch />Back to the corners found</Button>}
+          <Button variant="outline" size="sm" onClick={findAgain}><ScanSearch />Find the corners</Button>
           {fix.quad && <Button variant="ghost" size="sm" onClick={() => set({ quad: null, trim: 0, ratio: 'auto' })}><Maximize />Use the whole photo (a scan)</Button>}
         </div>
         <Tip className="mt-3">Check the result in the middle: there should be no table along its edges. Then go on to the colour.</Tip>
