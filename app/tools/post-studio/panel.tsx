@@ -3,7 +3,7 @@
 // The left-hand side: layout, background, photos and export.
 import { useRef, useState } from 'react';
 import {
-  ArrowDownToLine, ArrowUpToLine, Columns2, Crop, Download, GalleryHorizontal, Images, LayoutGrid, MoveVertical, Plus, RectangleHorizontal, RotateCcw, Rows2, Share, Shuffle, Square, Trash2, X,
+  ArrowDownToLine, ArrowUpToLine, Columns2, Crop, Download, Frame, GalleryHorizontal, Images, LayoutGrid, MoveVertical, Plus, RectangleHorizontal, RotateCcw, Rows2, Share, Shuffle, Square, Trash2, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,9 @@ export function Panel({ s }: { s: PostState }) {
   const { design: d } = s;
   return (
     <div className="p-4">
+      <PhotoTray s={s} />
+
+      <SubHeading className="mt-5">Kind of post</SubHeading>
       <ToggleGroup
         type="single" variant="outline" className="w-full" value={d.mode} aria-label="Kind of post"
         onValueChange={v => {
@@ -81,7 +84,6 @@ export function Panel({ s }: { s: PostState }) {
         </label>
       </div>
 
-      <PhotoTray s={s} />
       <ExportControls s={s} />
     </div>
   );
@@ -230,8 +232,13 @@ function PhotoTray({ s }: { s: PostState }) {
   const { photos, design: d, cells, frames, borderPhoto } = s;
   const input = useRef<HTMLInputElement>(null);
   const used = new Set((d.mode === 'carousel' ? frames : cells).map(c => c.photoId));
+  // The photo the Straighten & edit button works on: the one shown or selected, or the only one.
+  const currentId = d.mode === 'border' ? borderPhoto?.id
+    : d.mode === 'carousel' ? frames.find(f => f.id === s.selectedFrame)?.photoId
+    : s.selected != null ? cells[s.selected]?.photoId : null;
+  const current = (currentId != null && s.photoMap.get(currentId)) || (photos.length === 1 ? photos[0] : null);
   return <>
-    <SubHeading className="mt-5 flex items-center">
+    <SubHeading className="mt-0 flex items-center">
       Photos{photos.length > 0 && ` · ${photos.length}`}
       <Button variant="ghost" size="sm" className="ml-auto h-6 normal-case tracking-normal" onClick={() => input.current?.click()}><Plus />Add</Button>
     </SubHeading>
@@ -257,6 +264,12 @@ function PhotoTray({ s }: { s: PostState }) {
                   {/* eslint-disable-next-line @next/next/no-img-element -- local blob URL */}
                   <img src={p.thumb} alt={p.name} className="size-full object-cover" draggable={false} />
                 </button>
+                {p.fix && <span className="pointer-events-none absolute bottom-1 left-1 rounded bg-black/60 px-1 text-[10px] leading-4 text-white">Edited</span>}
+                <button
+                  type="button" aria-label={`Straighten & edit ${p.name}`} title="Straighten & edit"
+                  onClick={() => s.setFixing(p.id)}
+                  className="absolute -top-1.5 -left-1.5 rounded-full bg-card p-0.5 text-muted-foreground opacity-0 shadow ring-1 ring-border transition-opacity group-hover:opacity-100 hover:text-foreground focus-visible:opacity-100"
+                ><Frame className="size-3" /></button>
                 <button
                   type="button" aria-label={`Remove ${p.name}`} title="Remove this photo"
                   onClick={() => s.removePhoto(p.id)}
@@ -267,6 +280,12 @@ function PhotoTray({ s }: { s: PostState }) {
           })}
         </div>
       )}
+    {photos.length > 0 && <>
+      <Button variant="outline" size="sm" className="mt-2 w-full" disabled={!current} onClick={() => current && s.setFixing(current.id)}>
+        <Frame />{current ? <span className="truncate">Straighten &amp; edit {current.name}</span> : 'Straighten & edit (select a photo)'}
+      </Button>
+      <Tip className="mt-1.5">For a phone photo of a print: squares it up, crops it to the paper and corrects the colour.</Tip>
+    </>}
   </>;
 }
 
